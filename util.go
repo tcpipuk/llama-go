@@ -18,6 +18,9 @@ import "C"
 // token counting, or analysis. For normal generation, use Generate() which
 // handles tokenisation automatically.
 //
+// The tokeniser returns all tokens without truncation - there is no artificial
+// limit on the number of tokens that can be returned.
+//
 // Examples:
 //
 //	// Count tokens in a prompt
@@ -45,14 +48,27 @@ func (m *Model) Tokenize(text string) ([]int32, error) {
 	cText := C.CString(text)
 	defer C.free(unsafe.Pointer(cText))
 
-	maxTokens := 8192 // Reasonable upper bound
-	tokens := make([]C.int, maxTokens)
+	// Use dynamic allocation approach - C++ wrapper manages memory
+	var tokensPtr *C.int
+	var count C.int
 
-	count := C.llama_wrapper_tokenize(ctx.ptr, cText, &tokens[0], C.int(maxTokens))
-	if count < 0 {
+	C.llama_wrapper_tokenize_alloc(ctx.ptr, cText, &tokensPtr, &count)
+
+	// Ensure tokens are freed even if we error out
+	if tokensPtr != nil {
+		defer C.llama_wrapper_free_tokens(tokensPtr)
+	}
+
+	// Check for errors
+	if count < 0 || tokensPtr == nil {
 		return nil, fmt.Errorf("tokenisation failed: %s", C.GoString(C.llama_wrapper_last_error()))
 	}
 
+	// Copy from C array to Go slice
+	// Create a Go slice header pointing to C memory (without copying)
+	tokens := (*[1 << 30]C.int)(unsafe.Pointer(tokensPtr))[:count:count]
+
+	// Now copy to a proper Go-managed slice
 	result := make([]int32, count)
 	for i := 0; i < int(count); i++ {
 		result[i] = int32(tokens[i])

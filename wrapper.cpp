@@ -921,6 +921,58 @@ int llama_wrapper_tokenize(void* ctx, const char* text, int* tokens, int max_tok
     }
 }
 
+// Tokenise with dynamic allocation (C manages memory)
+// Caller must free the returned tokens array with llama_wrapper_free_tokens
+void llama_wrapper_tokenize_alloc(void* ctx, const char* text, int** tokens, int* count) {
+    // Initialise outputs to safe defaults
+    if (tokens) *tokens = nullptr;
+    if (count) *count = -1;
+
+    if (!ctx || !text || !tokens || !count) {
+        g_last_error = "Invalid parameters for tokenization";
+        return;
+    }
+
+    auto wrapper = static_cast<llama_wrapper_context_t*>(ctx);
+
+    try {
+        // Tokenise text (no truncation)
+        std::vector<llama_token> token_vec = common_tokenize(wrapper->ctx, text, true, true);
+
+        // Allocate exact size needed
+        int n_tokens = token_vec.size();
+        int* allocated_tokens = (int*)malloc(n_tokens * sizeof(int));
+        if (!allocated_tokens) {
+            g_last_error = "Failed to allocate memory for tokens";
+            return;
+        }
+
+        // Copy tokens from vector to allocated array
+        for (int i = 0; i < n_tokens; i++) {
+            allocated_tokens[i] = token_vec[i];
+        }
+
+        // Return pointer and count
+        *tokens = allocated_tokens;
+        *count = n_tokens;
+
+    } catch (const std::exception& e) {
+        g_last_error = "Exception during tokenization: " + std::string(e.what());
+        if (tokens && *tokens) {
+            free(*tokens);
+            *tokens = nullptr;
+        }
+        if (count) *count = -1;
+    }
+}
+
+// Free tokens allocated by llama_wrapper_tokenize_alloc
+void llama_wrapper_free_tokens(int* tokens) {
+    if (tokens) {
+        free(tokens);
+    }
+}
+
 int llama_wrapper_embeddings(void* ctx, const char* text, float* embeddings, int max_embeddings) {
     if (!ctx || !text || !embeddings) {
         g_last_error = "Invalid parameters for embeddings";

@@ -143,7 +143,7 @@ var _ = Describe("Model.Tokenize", func() {
 	})
 
 	Context("with very long text", func() {
-		It("should tokenise text up to buffer limit (8192)", Label("integration"), func() {
+		It("should tokenise long text without truncation", Label("integration"), func() {
 			// Generate text that will produce many tokens
 			longText := strings.Repeat("word ", 2000)
 			tokens, err := model.Tokenize(longText)
@@ -151,26 +151,20 @@ var _ = Describe("Model.Tokenize", func() {
 			Expect(len(tokens)).To(BeNumerically(">", 0))
 		})
 
-		It("should handle text exceeding 8192 tokens", Label("integration"), func() {
-			// Generate very long text likely to exceed token buffer
+		It("should handle very long text without artificial limits", Label("integration"), func() {
+			// Generate very long text - should handle without truncation
 			veryLongText := strings.Repeat("tokenisation ", 3000)
 			tokens, err := model.Tokenize(veryLongText)
-			// Should either succeed (with truncation to 8192) or return proper error
-			if err == nil {
-				Expect(len(tokens)).To(BeNumerically("<=", 8192), "should not exceed buffer limit")
-			} else {
-				Expect(err.Error()).NotTo(BeEmpty())
-			}
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(tokens)).To(BeNumerically(">", 0))
 		})
 
 		It("should not crash on very long inputs", Label("integration", "slow"), func() {
 			// Extreme length test
 			extremelyLongText := strings.Repeat("test ", 5000)
-			_, err := model.Tokenize(extremelyLongText)
-			// Either succeeds or returns error, but must not crash
-			if err != nil {
-				Expect(err.Error()).NotTo(BeEmpty())
-			}
+			tokens, err := model.Tokenize(extremelyLongText)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(tokens)).To(BeNumerically(">", 0))
 		})
 	})
 
@@ -285,19 +279,19 @@ var _ = Describe("Tokenization Output Validation", func() {
 	})
 
 	Context("token count behaviour", func() {
-		It("should return actual token count (may be less than buffer)", Label("integration"), func() {
+		It("should return actual token count", Label("integration"), func() {
 			tokens, err := model.Tokenize("Short text")
 			Expect(err).NotTo(HaveOccurred())
-			// Should return only actual tokens, not full buffer
-			Expect(len(tokens)).To(BeNumerically("<", 8192))
+			// Should return only actual tokens
 			Expect(len(tokens)).To(BeNumerically(">", 0))
+			Expect(len(tokens)).To(BeNumerically("<", 100), "short text should produce minimal tokens")
 		})
 
-		It("should not pad to buffer size", Label("integration"), func() {
+		It("should not pad output", Label("integration"), func() {
 			tokens, err := model.Tokenize("Test")
 			Expect(err).NotTo(HaveOccurred())
-			// Should return minimal tokens, not padded to 8192
-			Expect(len(tokens)).To(BeNumerically("<", 100), "short text should not produce buffer-sized output")
+			// Should return minimal tokens, not padded
+			Expect(len(tokens)).To(BeNumerically("<", 100), "short text should not produce padded output")
 		})
 
 		It("should handle single-token inputs", Label("integration"), func() {
@@ -309,23 +303,21 @@ var _ = Describe("Tokenization Output Validation", func() {
 		})
 	})
 
-	Context("buffer limits", func() {
-		It("should use maximum buffer size 8192", Label("integration"), func() {
-			// Very long text should not exceed buffer limit
+	Context("large input handling", func() {
+		It("should handle very long text without artificial limits", Label("integration"), func() {
+			// Very long text should tokenise completely
 			longText := strings.Repeat("word ", 3000)
 			tokens, err := model.Tokenize(longText)
-			if err == nil {
-				Expect(len(tokens)).To(BeNumerically("<=", 8192), "should respect 8192 token buffer limit")
-			}
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(tokens)).To(BeNumerically(">", 0))
 		})
 
-		It("should not exceed 8192 tokens in return slice", Label("integration"), func() {
-			// Test with extremely long text
+		It("should tokenise extremely long text completely", Label("integration"), func() {
+			// Test with extremely long text - no truncation
 			extremeText := strings.Repeat("tokenisation test ", 2000)
 			tokens, err := model.Tokenize(extremeText)
-			if err == nil {
-				Expect(len(tokens)).To(BeNumerically("<=", 8192), "must not exceed maximum buffer size")
-			}
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(tokens)).To(BeNumerically(">", 0))
 		})
 	})
 })

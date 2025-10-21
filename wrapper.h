@@ -103,6 +103,15 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
 // Tokenization
 int llama_wrapper_tokenize(void* ctx, const char* text, int* tokens, int max_tokens);
 
+// Tokenise with dynamic allocation (C manages memory)
+// Allocates exact size needed for tokens - caller must free with llama_wrapper_free_tokens
+// tokens: output parameter for allocated token array pointer
+// count: output parameter for number of tokens (or -1 on error)
+void llama_wrapper_tokenize_alloc(void* ctx, const char* text, int** tokens, int* count);
+
+// Free tokens allocated by llama_wrapper_tokenize_alloc
+void llama_wrapper_free_tokens(int* tokens);
+
 // Embeddings
 int llama_wrapper_embeddings(void* ctx, const char* text, float* embeddings, int max_embeddings);
 
