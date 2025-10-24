@@ -77,7 +77,7 @@ Build and test the updated bindings:
 # Verify no existing build artifacts
 ls -la libbinding.a 2>/dev/null  # Should return nothing
 
-# Build with Docker for consistent environment (expect 15-20 minutes)
+# Build with Docker for consistent environment (expect 20-25 minutes with FA_ALL_QUANTS enabled)
 docker run --rm -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda \
   "make libbinding.a"
 

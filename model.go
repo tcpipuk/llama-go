@@ -116,6 +116,7 @@ type modelConfig struct {
 	idleTimeout            time.Duration
 	prefixCaching          bool   // Enable KV cache prefix reuse (default: true)
 	kvCacheType            string // KV cache quantization type: "f16", "q8_0", "q4_0" (default: "q8_0")
+	flashAttn              string // Flash Attention mode: "auto", "enabled", "disabled" (default: "auto")
 	disableProgressCallback bool
 	progressCallback       ProgressCallback
 }
@@ -188,6 +189,7 @@ var defaultModelConfig = modelConfig{
 	idleTimeout:   1 * time.Minute,
 	prefixCaching: true,   // Enable by default for performance
 	kvCacheType:   "q8_0", // 50% VRAM savings with ~0.1% quality loss
+	flashAttn:     "auto", // Let llama.cpp choose optimal path
 }
 
 var defaultGenerateConfig = generateConfig{
@@ -336,6 +338,12 @@ func LoadModel(path string, opts ...ModelOption) (*Model, error) {
 		defer C.free(unsafe.Pointer(cKVCacheType))
 	}
 
+	var cFlashAttn *C.char
+	if config.flashAttn != "" {
+		cFlashAttn = C.CString(config.flashAttn)
+		defer C.free(unsafe.Pointer(cFlashAttn))
+	}
+
 	params := C.llama_wrapper_model_params{
 		n_ctx:           C.int(config.contextSize),
 		n_batch:         C.int(config.batchSize),
@@ -350,6 +358,7 @@ func LoadModel(path string, opts ...ModelOption) (*Model, error) {
 		main_gpu:        cMainGPU,
 		tensor_split:    cTensorSplit,
 		kv_cache_type:   cKVCacheType,
+		flash_attn:      cFlashAttn,
 	}
 
 	// Configure progress callback if requested

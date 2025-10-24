@@ -140,6 +140,19 @@ static struct llama_context_params convert_context_params(llama_wrapper_model_pa
         // If unrecognized, leave as default (f16)
     }
 
+    // Set Flash Attention mode
+    if (params.flash_attn != nullptr) {
+        std::string fa_mode(params.flash_attn);
+        if (fa_mode == "enabled") {
+            ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+        } else if (fa_mode == "disabled") {
+            ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+        } else if (fa_mode == "auto") {
+            ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+        }
+        // If unrecognized, leave as default (auto)
+    }
+
     return ctx_params;
 }
 

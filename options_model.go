@@ -314,6 +314,55 @@ func WithKVCacheType(cacheType string) ModelOption {
 	}
 }
 
+// WithFlashAttn controls Flash Attention kernel usage for attention computation.
+//
+// Flash Attention is a GPU-optimized attention implementation that significantly
+// reduces VRAM usage and improves performance, especially for longer contexts.
+// It's required when using quantized KV cache types (q8_0, q4_0).
+//
+// Available modes:
+//   - "auto" (default): llama.cpp decides based on hardware and model config
+//   - "enabled": Force Flash Attention on (fails if hardware doesn't support it)
+//   - "disabled": Use traditional attention (incompatible with quantized KV cache)
+//
+// Technical details:
+//   - Requires CUDA compute capability 7.0+ (Volta/Turing or newer)
+//   - With GGML_CUDA_FA_ALL_QUANTS: Supports all KV cache quantization types
+//   - Without flag: Only supports f16, q4_0, and q8_0 (matching K/V types)
+//   - AUTO mode detects if backend scheduler supports the Flash Attention ops
+//
+// Default: "auto" (llama.cpp chooses optimal path)
+//
+// Examples:
+//
+//	// Use default auto-detection (recommended)
+//	model, err := llama.LoadModel("model.gguf",
+//	    llama.WithKVCacheType("q8_0"),
+//	)
+//
+//	// Force Flash Attention on (errors if unsupported)
+//	model, err := llama.LoadModel("model.gguf",
+//	    llama.WithFlashAttn("enabled"),
+//	)
+//
+//	// Disable Flash Attention (requires f16 KV cache)
+//	model, err := llama.LoadModel("model.gguf",
+//	    llama.WithKVCacheType("f16"),
+//	    llama.WithFlashAttn("disabled"),
+//	)
+func WithFlashAttn(mode string) ModelOption {
+	return func(c *modelConfig) {
+		// Validate flash attention mode
+		switch mode {
+		case "auto", "enabled", "disabled":
+			c.flashAttn = mode
+		default:
+			// Silently ignore invalid modes and keep default
+			// This prevents hard failures from typos while maintaining sensible behaviour
+		}
+	}
+}
+
 // WithParallel sets the number of parallel sequences for batch processing.
 //
 // This option controls how many independent sequences can be processed

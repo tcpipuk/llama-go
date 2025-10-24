@@ -25,6 +25,7 @@ typedef struct {
     const char* main_gpu;   // Main GPU
     const char* tensor_split; // Tensor split
     const char* kv_cache_type; // KV cache quantization: "f16", "q8_0", "q4_0"
+    const char* flash_attn;    // Flash Attention: "auto", "enabled", "disabled"
     bool disable_progress_callback;           // For silent loading
     llama_progress_callback_wrapper progress_callback;  // Custom callback
     void* progress_callback_user_data;        // User data for callback
