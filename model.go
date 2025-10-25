@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
-	"time"
 	"unsafe"
 )
 
@@ -56,30 +55,12 @@ func InitLogging() {
 	C.llama_wrapper_init_logging()
 }
 
-// context represents a single execution context with usage tracking
-type context struct {
-	ptr     unsafe.Pointer // llama_wrapper_context_t*
-	lastUse time.Time
-	mu      sync.Mutex
-}
-
-// contextPool manages a dynamic pool of contexts for a model
-type contextPool struct {
-	model     unsafe.Pointer // llama_wrapper_model_t* (weights only)
-	config    modelConfig
-	contexts  []*context
-	available chan *context
-	done      chan struct{}
-	mu        sync.Mutex
-	wg        sync.WaitGroup
-}
-
-// Model represents a loaded LLAMA model with concurrent inference support.
+// Model represents loaded model weights.
 //
-// Model instances are thread-safe for concurrent inference operations but NOT
-// for concurrent Close() calls. The internal context pool manages multiple
-// execution contexts, allowing parallel generations when configured with
-// WithPoolSize.
+// Model instances are thread-safe and can be used to create multiple execution
+// contexts with different configurations. The model owns the weights in memory
+// but doesn't perform inference directly - use NewContext() to create execution
+// contexts.
 //
 // Resources are automatically freed via finaliser, but explicit Close() is
 // recommended for deterministic cleanup:
@@ -90,186 +71,13 @@ type contextPool struct {
 // Note: Calling methods after Close() returns an error.
 type Model struct {
 	modelPtr           unsafe.Pointer // llama_wrapper_model_t* (weights only)
-	pool               *contextPool
 	mu                 sync.RWMutex
 	closed             bool
 	chatTemplates      unsafe.Pointer // cached common_chat_templates*
 	ProgressCallbackID uintptr        // Internal ID for progress callback cleanup (for testing)
 }
 
-// modelConfig holds configuration for model loading
-type modelConfig struct {
-	contextSize            int
-	batchSize              int
-	gpuLayers              int
-	threads                int
-	threadsBatch           int
-	nParallel              int // Number of parallel sequences (for batch embeddings)
-	f16Memory              bool
-	mlock                  bool
-	mmap                   bool
-	embeddings             bool
-	mainGPU                string
-	tensorSplit            string
-	minContexts            int
-	maxContexts            int
-	idleTimeout            time.Duration
-	prefixCaching          bool   // Enable KV cache prefix reuse (default: true)
-	kvCacheType            string // KV cache quantization type: "f16", "q8_0", "q4_0" (default: "q8_0")
-	flashAttn              string // Flash Attention mode: "auto", "enabled", "disabled" (default: "auto")
-	disableProgressCallback bool
-	progressCallback       ProgressCallback
-}
-
-// generateConfig holds configuration for text generation
-type generateConfig struct {
-	// Basic generation
-	maxTokens     int
-	temperature   float32
-	seed          int
-	stopWords     []string
-	draftTokens   int
-	debug         bool
-	prefixCaching bool // Per-generation prefix caching control
-
-	// Basic sampling parameters
-	topK      int
-	topP      float32
-	minP      float32
-	typP      float32
-	topNSigma float32
-	minKeep   int
-
-	// Repetition penalties
-	penaltyLastN   int
-	penaltyRepeat  float32
-	penaltyFreq    float32
-	penaltyPresent float32
-
-	// DRY (Don't Repeat Yourself) sampling
-	dryMultiplier       float32
-	dryBase             float32
-	dryAllowedLength    int
-	dryPenaltyLastN     int
-	drySequenceBreakers []string
-
-	// Dynamic temperature
-	dynatempRange    float32
-	dynatempExponent float32
-
-	// XTC (eXclude Top Choices) sampling
-	xtcProbability float32
-	xtcThreshold   float32
-
-	// Mirostat sampling
-	mirostat    int
-	mirostatTau float32
-	mirostatEta float32
-
-	// Other parameters
-	nPrev     int
-	nProbs    int
-	ignoreEOS bool
-}
-
-// Default configurations
-var defaultModelConfig = modelConfig{
-	contextSize:   0, // 0 = use model's native maximum (queried after load)
-	batchSize:     512,
-	gpuLayers:     -1, // Offload all layers to GPU by default (falls back to CPU if unavailable)
-	threads:       runtime.NumCPU(),
-	threadsBatch:  0, // 0 means use same as threads (set in wrapper)
-	nParallel:     1, // 1 for generation, auto-set higher for embeddings
-	f16Memory:     false,
-	mlock:         false,
-	mmap:          true,
-	embeddings:    false,
-	minContexts:   1,
-	maxContexts:   1,
-	idleTimeout:   1 * time.Minute,
-	prefixCaching: true,   // Enable by default for performance
-	kvCacheType:   "q8_0", // 50% VRAM savings with ~0.1% quality loss
-	flashAttn:     "auto", // Let llama.cpp choose optimal path
-}
-
-var defaultGenerateConfig = generateConfig{
-	// Basic generation
-	maxTokens:     128,
-	temperature:   0.8,
-	seed:          -1,
-	draftTokens:   16,
-	debug:         false,
-	prefixCaching: true, // Inherit from model default
-
-	// Basic sampling parameters
-	topK:      40,
-	topP:      0.95,
-	minP:      0.05,
-	typP:      1.0,  // 1.0 = disabled
-	topNSigma: -1.0, // -1.0 = disabled
-	minKeep:   0,
-
-	// Repetition penalties
-	penaltyLastN:   64,
-	penaltyRepeat:  1.0, // 1.0 = disabled
-	penaltyFreq:    0.0, // 0.0 = disabled
-	penaltyPresent: 0.0, // 0.0 = disabled
-
-	// DRY sampling
-	dryMultiplier:       0.0, // 0.0 = disabled
-	dryBase:             1.75,
-	dryAllowedLength:    2,
-	dryPenaltyLastN:     -1, // -1 = context size
-	drySequenceBreakers: []string{"\n", ":", "\"", "*"},
-
-	// Dynamic temperature
-	dynatempRange:    0.0, // 0.0 = disabled
-	dynatempExponent: 1.0,
-
-	// XTC sampling
-	xtcProbability: 0.0, // 0.0 = disabled
-	xtcThreshold:   0.1,
-
-	// Mirostat sampling
-	mirostat:    0, // 0 = disabled
-	mirostatTau: 5.0,
-	mirostatEta: 0.1,
-
-	// Other parameters
-	nPrev:     64,
-	nProbs:    0, // 0 = disabled
-	ignoreEOS: false,
-}
-
-// ModelOption configures model loading behaviour.
-//
-// Options are applied using the functional options pattern. Available options
-// include WithContext, WithGPULayers, WithThreads, WithPoolSize, and others.
-// See individual With* functions for details.
-//
-// Example:
-//
-//	model, err := llama.LoadModel("model.gguf",
-//	    llama.WithContext(8192),
-//	    llama.WithGPULayers(35),
-//	    llama.WithThreads(8),
-//	)
-type ModelOption func(*modelConfig)
-
-// GenerateOption configures text generation behaviour.
-//
-// Options are applied using the functional options pattern. Available options
-// include WithMaxTokens, WithTemperature, WithTopP, WithTopK, WithSeed,
-// WithStopWords, WithDraftTokens, WithDebug, and WithPrefixCaching.
-// See individual With* functions for details.
-//
-// Example:
-//
-//	text, err := model.Generate("Write a story",
-//	    llama.WithMaxTokens(256),
-//	    llama.WithTemperature(0.7),
-//	)
-type GenerateOption func(*generateConfig)
+// Config types are defined in types.go
 
 // LoadModel loads a GGUF model from the specified path.
 //
@@ -287,33 +95,28 @@ type GenerateOption func(*generateConfig)
 //	defer model.Close()
 //
 // Returns an error if the file doesn't exist, is not a valid GGUF model, or
-// if context pool initialisation fails.
+// if model loading fails.
 //
 // Examples:
 //
 //	// Load with defaults
 //	model, err := llama.LoadModel("model.gguf")
 //
-//	// Load with custom configuration
+//	// Load with custom GPU configuration
 //	model, err := llama.LoadModel("model.gguf",
-//	    llama.WithContext(8192),
 //	    llama.WithGPULayers(35),
-//	    llama.WithPoolSize(1, 4),
 //	)
 func LoadModel(path string, opts ...ModelOption) (*Model, error) {
 	if path == "" {
 		return nil, fmt.Errorf("Model path cannot be null")
 	}
 
+	// Start with defaults
 	config := defaultModelConfig
+
+	// Apply all options
 	for _, opt := range opts {
 		opt(&config)
-	}
-
-	// Auto-set nParallel for embeddings if not explicitly configured
-	// Use 8 parallel sequences for efficient batch embedding processing
-	if config.embeddings && config.nParallel == 1 {
-		config.nParallel = 8
 	}
 
 	// Convert Go config to C struct for model loading
@@ -332,33 +135,21 @@ func LoadModel(path string, opts ...ModelOption) (*Model, error) {
 		defer C.free(unsafe.Pointer(cTensorSplit))
 	}
 
-	var cKVCacheType *C.char
-	if config.kvCacheType != "" {
-		cKVCacheType = C.CString(config.kvCacheType)
-		defer C.free(unsafe.Pointer(cKVCacheType))
-	}
-
-	var cFlashAttn *C.char
-	if config.flashAttn != "" {
-		cFlashAttn = C.CString(config.flashAttn)
-		defer C.free(unsafe.Pointer(cFlashAttn))
-	}
-
 	params := C.llama_wrapper_model_params{
-		n_ctx:           C.int(config.contextSize),
-		n_batch:         C.int(config.batchSize),
+		n_ctx:           0, // Not used for model loading
+		n_batch:         0, // Not used for model loading
 		n_gpu_layers:    C.int(config.gpuLayers),
-		n_threads:       C.int(config.threads),
-		n_threads_batch: C.int(config.threadsBatch),
-		n_parallel:      C.int(config.nParallel),
-		f16_memory:      C.bool(config.f16Memory),
+		n_threads:       0, // Not used for model loading
+		n_threads_batch: 0, // Not used for model loading
+		n_parallel:      0, // Not used for model loading
+		f16_memory:      false,
 		mlock:           C.bool(config.mlock),
 		mmap:            C.bool(config.mmap),
-		embeddings:      C.bool(config.embeddings),
+		embeddings:      false,
 		main_gpu:        cMainGPU,
 		tensor_split:    cTensorSplit,
-		kv_cache_type:   cKVCacheType,
-		flash_attn:      cFlashAttn,
+		kv_cache_type:   nil,
+		flash_attn:      nil,
 	}
 
 	// Configure progress callback if requested
@@ -388,28 +179,8 @@ func LoadModel(path string, opts ...ModelOption) (*Model, error) {
 		return nil, fmt.Errorf("failed to load model: %s", C.GoString(C.llama_wrapper_last_error()))
 	}
 
-	// Query model's native context if user didn't specify
-	if config.contextSize == 0 {
-		nativeContext := int(C.llama_wrapper_get_model_context_length(modelPtr))
-		config.contextSize = nativeContext
-	}
-
-	// Optimisation: clamp batch size to context size
-	// You can never process more tokens per batch than fit in total context
-	if config.batchSize > config.contextSize {
-		config.batchSize = config.contextSize
-	}
-
-	// Create context pool
-	pool, err := newContextPool(modelPtr, config)
-	if err != nil {
-		C.llama_wrapper_model_free(modelPtr)
-		return nil, fmt.Errorf("failed to create context pool: %w", err)
-	}
-
 	model := &Model{
 		modelPtr:           modelPtr,
-		pool:               pool,
 		ProgressCallbackID: callbackID,
 	}
 
@@ -419,11 +190,125 @@ func LoadModel(path string, opts ...ModelOption) (*Model, error) {
 	return model, nil
 }
 
+// NewContext creates a new execution context from this model.
+//
+// This method creates an execution context with the specified configuration.
+// Multiple contexts can be created from the same model to handle different
+// use cases (e.g., small context for tokenization, large context for generation).
+//
+// Each context maintains its own KV cache and state. For concurrent inference,
+// create multiple contexts from the same model - this is VRAM efficient since
+// contexts share the model weights (e.g., 7GB model + 100MB per context).
+//
+// Thread safety: Model is thread-safe, but each Context is not. Use one context
+// per goroutine for concurrent inference.
+//
+// See also: Context.Generate, Context.Chat for inference operations.
+//
+// Example:
+//
+//	// Load model once
+//	model, _ := llama.LoadModel("model.gguf", llama.WithGPULayers(-1))
+//	defer model.Close()
+//
+//	// Create context for tokenization
+//	tokCtx, _ := model.NewContext(
+//	    llama.WithContext(512),
+//	    llama.WithKVCacheType("f16"),
+//	)
+//	defer tokCtx.Close()
+//
+//	// Create context for generation
+//	genCtx, _ := model.NewContext(
+//	    llama.WithContext(8192),
+//	    llama.WithKVCacheType("q8_0"),
+//	)
+//	defer genCtx.Close()
+func (m *Model) NewContext(opts ...ContextOption) (*Context, error) {
+	m.mu.RLock()
+	if m.closed {
+		m.mu.RUnlock()
+		return nil, fmt.Errorf("model is closed")
+	}
+	modelPtr := m.modelPtr
+	m.mu.RUnlock()
+
+	// Start with default context config
+	config := defaultContextConfig
+
+	// Apply all options
+	for _, opt := range opts {
+		opt(&config)
+	}
+
+	// Auto-set nParallel for embeddings if not explicitly configured
+	if config.embeddings && config.nParallel == 1 {
+		config.nParallel = 8
+	}
+
+	// Query model's native context if user didn't specify
+	if config.contextSize == 0 {
+		nativeContext := int(C.llama_wrapper_get_model_context_length(modelPtr))
+		config.contextSize = nativeContext
+	}
+
+	// Optimisation: clamp batch size to context size
+	if config.batchSize > config.contextSize {
+		config.batchSize = config.contextSize
+	}
+
+	// Convert Go config to C struct for context creation
+	var cKVCacheType *C.char
+	if config.kvCacheType != "" {
+		cKVCacheType = C.CString(config.kvCacheType)
+		defer C.free(unsafe.Pointer(cKVCacheType))
+	}
+
+	var cFlashAttn *C.char
+	if config.flashAttn != "" {
+		cFlashAttn = C.CString(config.flashAttn)
+		defer C.free(unsafe.Pointer(cFlashAttn))
+	}
+
+	params := C.llama_wrapper_model_params{
+		n_ctx:           C.int(config.contextSize),
+		n_batch:         C.int(config.batchSize),
+		n_gpu_layers:    0, // Not used for context creation (model already loaded)
+		n_threads:       C.int(config.threads),
+		n_threads_batch: C.int(config.threadsBatch),
+		n_parallel:      C.int(config.nParallel),
+		f16_memory:      C.bool(config.f16Memory),
+		mlock:           false, // Not used for context creation
+		mmap:            false, // Not used for context creation
+		embeddings:      C.bool(config.embeddings),
+		main_gpu:        nil,         // Not used for context creation
+		tensor_split:    nil,         // Not used for context creation
+		kv_cache_type:   cKVCacheType,
+		flash_attn:      cFlashAttn,
+	}
+
+	// Create context
+	ctxPtr := C.llama_wrapper_context_create(modelPtr, params)
+	if ctxPtr == nil {
+		return nil, fmt.Errorf("failed to create context: %s", C.GoString(C.llama_wrapper_last_error()))
+	}
+
+	ctx := &Context{
+		contextPtr: ctxPtr,
+		model:      m,
+		config:     config,
+	}
+
+	// Set finaliser to ensure cleanup
+	runtime.SetFinalizer(ctx, (*Context).Close)
+
+	return ctx, nil
+}
+
 // Close frees the model and its associated resources.
 //
 // This method is idempotent - multiple calls are safe and subsequent calls
-// return immediately without error. Close() blocks until all active generation
-// requests complete, ensuring clean shutdown.
+// return immediately without error.
 //
 // After Close() is called, all other methods return an error. The method uses
 // a write lock to prevent concurrent operations during cleanup.
@@ -455,12 +340,6 @@ func (m *Model) Close() error {
 		m.chatTemplates = nil
 	}
 
-	// Close pool (frees all contexts)
-	if m.pool != nil {
-		m.pool.close()
-		m.pool = nil
-	}
-
 	// Free model
 	if m.modelPtr != nil {
 		C.llama_wrapper_model_free(m.modelPtr)
@@ -481,7 +360,7 @@ func (m *Model) Close() error {
 //
 //	template := model.ChatTemplate()
 //	if template == "" {
-//	    // Model has no template - user must provide one or use Generate()
+//	    // Model has no template - user must provide one
 //	}
 func (m *Model) ChatTemplate() string {
 	m.mu.RLock()
@@ -509,6 +388,8 @@ func (m *Model) ChatTemplate() string {
 //   - Understanding how the template formats conversations
 //
 // The template priority is: opts.ChatTemplate > model's GGUF template > error.
+//
+// See also: Context.Chat for performing chat completion with generation.
 //
 // Example:
 //

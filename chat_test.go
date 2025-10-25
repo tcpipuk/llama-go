@@ -14,6 +14,7 @@ import (
 
 var _ = Describe("Chat API", func() {
 	var model *llama.Model
+	var ctx *llama.Context
 	var testModelPath string
 
 	BeforeEach(func() {
@@ -24,12 +25,18 @@ var _ = Describe("Chat API", func() {
 		}
 
 		var err error
-		model, err = llama.LoadModel(testModelPath)
+		model, err = llama.LoadModel(testModelPath, llama.WithGPULayers(-1))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(model).NotTo(BeNil())
+
+		ctx, err = model.NewContext(llama.WithContext(2048))
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	AfterEach(func() {
+		if ctx != nil {
+			ctx.Close()
+		}
 		if model != nil {
 			model.Close()
 		}
@@ -66,8 +73,8 @@ var _ = Describe("Chat API", func() {
 					{Role: "user", Content: "What is the capital city of France?"},
 				}
 
-				ctx := context.Background()
-				response, err := model.Chat(ctx, messages, llama.ChatOptions{
+				bgCtx := context.Background()
+				response, err := ctx.Chat(bgCtx, messages, llama.ChatOptions{
 					MaxTokens:   llama.Int(50),
 					Temperature: llama.Float32(0.0), // Deterministic
 					Seed:        llama.Int(42),
@@ -85,8 +92,8 @@ var _ = Describe("Chat API", func() {
 					{Role: "user", Content: "Count from 1 to 100"},
 				}
 
-				ctx := context.Background()
-				response, err := model.Chat(ctx, messages, llama.ChatOptions{
+				bgCtx := context.Background()
+				response, err := ctx.Chat(bgCtx, messages, llama.ChatOptions{
 					MaxTokens:   llama.Int(10),
 					Temperature: llama.Float32(0.0),
 				})
@@ -103,8 +110,8 @@ var _ = Describe("Chat API", func() {
 					{Role: "user", Content: "Hello"},
 				}
 
-				ctx := context.Background()
-				response, err := model.Chat(ctx, messages, llama.ChatOptions{
+				bgCtx := context.Background()
+				response, err := ctx.Chat(bgCtx, messages, llama.ChatOptions{
 					MaxTokens: llama.Int(1),
 				})
 
@@ -120,10 +127,10 @@ var _ = Describe("Chat API", func() {
 					{Role: "user", Content: "Tell me a very long story"},
 				}
 
-				ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+				ctxTimeout, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 				defer cancel()
 
-				response, err := model.Chat(ctx, messages, llama.ChatOptions{
+				response, err := ctx.Chat(ctxTimeout, messages, llama.ChatOptions{
 					MaxTokens: llama.Int(1000), // Request many tokens
 				})
 
@@ -141,10 +148,10 @@ var _ = Describe("Chat API", func() {
 					{Role: "user", Content: "Hello"},
 				}
 
-				ctx, cancel := context.WithCancel(context.Background())
+				bgCtx, cancel := context.WithCancel(context.Background())
 				cancel() // Cancel immediately
 
-				_, err := model.Chat(ctx, messages, llama.ChatOptions{
+				_, err := ctx.Chat(bgCtx, messages, llama.ChatOptions{
 					MaxTokens: llama.Int(10),
 				})
 
@@ -159,8 +166,8 @@ var _ = Describe("Chat API", func() {
 					{Role: "user", Content: "Say hello"},
 				}
 
-				ctx := context.Background()
-				response, err := model.Chat(ctx, messages, llama.ChatOptions{
+				bgCtx := context.Background()
+				response, err := ctx.Chat(bgCtx, messages, llama.ChatOptions{
 					MaxTokens:   llama.Int(20),
 					Temperature: llama.Float32(1.5), // High temperature
 				})
@@ -180,8 +187,8 @@ var _ = Describe("Chat API", func() {
 					Seed:        llama.Int(12345),
 				}
 
-				ctx := context.Background()
-				response, err := model.Chat(ctx, messages, opts)
+				bgCtx := context.Background()
+				response, err := ctx.Chat(bgCtx, messages, opts)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(response.Content).NotTo(BeEmpty())
 
@@ -199,8 +206,8 @@ var _ = Describe("Chat API", func() {
 					{Role: "user", Content: "What is the capital of England?"},
 				}
 
-				ctx := context.Background()
-				deltaCh, errCh := model.ChatStream(ctx, messages, llama.ChatOptions{
+				bgCtx := context.Background()
+				deltaCh, errCh := ctx.ChatStream(bgCtx, messages, llama.ChatOptions{
 					MaxTokens:   llama.Int(50),
 					Temperature: llama.Float32(0.0),
 					Seed:        llama.Int(42),
@@ -238,9 +245,9 @@ var _ = Describe("Chat API", func() {
 					{Role: "user", Content: "Tell me a very long story about dragons"},
 				}
 
-				ctx, cancel := context.WithCancel(context.Background())
+				bgCtx, cancel := context.WithCancel(context.Background())
 				defer cancel()
-				deltaCh, errCh := model.ChatStream(ctx, messages, llama.ChatOptions{
+				deltaCh, errCh := ctx.ChatStream(bgCtx, messages, llama.ChatOptions{
 					MaxTokens: llama.Int(1000),
 				})
 
@@ -280,8 +287,8 @@ var _ = Describe("Chat API", func() {
 					{Role: "user", Content: "Count: 1 2 3 4 5"},
 				}
 
-				ctx := context.Background()
-				deltaCh, _ := model.ChatStream(ctx, messages, llama.ChatOptions{
+				bgCtx := context.Background()
+				deltaCh, _ := ctx.ChatStream(bgCtx, messages, llama.ChatOptions{
 					MaxTokens:        llama.Int(20),
 					StreamBufferSize: 512, // Custom buffer size
 				})
@@ -311,8 +318,8 @@ var _ = Describe("Chat API", func() {
 			It("should handle empty messages", func() {
 				messages := []llama.ChatMessage{}
 
-				ctx := context.Background()
-				_, err := model.Chat(ctx, messages, llama.ChatOptions{
+				bgCtx := context.Background()
+				_, err := ctx.Chat(bgCtx, messages, llama.ChatOptions{
 					MaxTokens: llama.Int(10),
 				})
 
@@ -331,8 +338,8 @@ var _ = Describe("Chat API", func() {
 					{Role: "user", Content: "My name is Alice"},
 				}
 
-				ctx := context.Background()
-				response1, err := model.Chat(ctx, messages, llama.ChatOptions{
+				bgCtx := context.Background()
+				response1, err := ctx.Chat(bgCtx, messages, llama.ChatOptions{
 					MaxTokens: llama.Int(50),
 				})
 
@@ -349,7 +356,7 @@ var _ = Describe("Chat API", func() {
 					Content: "What is my name?",
 				})
 
-				response2, err := model.Chat(ctx, messages, llama.ChatOptions{
+				response2, err := ctx.Chat(bgCtx, messages, llama.ChatOptions{
 					MaxTokens: llama.Int(50),
 				})
 

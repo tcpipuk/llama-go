@@ -143,11 +143,12 @@ If inference seems slow:
 
 Now that you have a working installation:
 
-- Read the [API guide](api-guide.md) for detailed usage examples
-- Check the [building guide](building.md) for hardware acceleration options
-- Explore the [CLI example](../examples/README.md) to understand the implementation
-- Try different models from
-  [Hugging Face's GGUF collection](https://huggingface.co/models?library=gguf)
+- **[API guide](api-guide.md)** - Complete guide to Model/Context separation, thread safety,
+  streaming, embeddings, and advanced patterns
+- **[Building guide](building.md)** - Hardware acceleration options (CUDA, Metal, Vulkan, etc.)
+- **[Examples](../examples/README.md)** - Working code for chat, streaming, embeddings, and
+  speculative decoding
+- **[Hugging Face GGUF models](https://huggingface.co/models?library=gguf)** - Try different models
 
 ## What you've accomplished
 
@@ -157,6 +158,7 @@ You've successfully:
 - Downloaded and tested with a working language model
 - Verified the complete inference pipeline works
 - Understood the basic environment setup
+- Seen the Model/Context separation pattern in action
 
 ## Using in your own project
 
@@ -168,16 +170,47 @@ Now that the library works, here's how to integrate it into your Go application:
    import llama "github.com/tcpipuk/llama-go"
    ```
 
-2. **Build your application** with the same environment variables:
+2. **Use the Model/Context API pattern**:
+
+   ```go
+   // Load model weights (ModelOption: WithGPULayers, WithMLock, etc.)
+   model, err := llama.LoadModel(
+       "model.gguf",
+       llama.WithGPULayers(-1), // Offload all layers to GPU
+   )
+   if err != nil {
+       return err
+   }
+   defer model.Close()
+
+   // Create execution context (ContextOption: WithContext, WithBatch, etc.)
+   ctx, err := model.NewContext(
+       llama.WithContext(2048),
+       llama.WithF16Memory(),
+   )
+   if err != nil {
+       return err
+   }
+   defer ctx.Close()
+
+   // Generate text
+   response, err := ctx.Generate("Hello world", llama.WithMaxTokens(50))
+   if err != nil {
+       return err
+   }
+   fmt.Println(response)
+   ```
+
+3. **Build your application** with the same environment variables:
 
    ```bash
    export LIBRARY_PATH=$PWD C_INCLUDE_PATH=$PWD LD_LIBRARY_PATH=$PWD
    go build -o myapp
    ```
 
-3. **Distribute the shared libraries** (`.so` files) alongside your binary - see the
+4. **Distribute the shared libraries** (`.so` files) alongside your binary - see the
    [building guide](building.md#distributing-your-application) for deployment details.
 
-The [API guide](api-guide.md) shows common patterns like streaming, conversation handling, and
-thread-safe pooling. For hardware acceleration, see the
+The [API guide](api-guide.md) shows common patterns like streaming, chat completion, embeddings,
+concurrent inference, and speculative decoding. For hardware acceleration, see the
 [building guide](building.md#hardware-acceleration).

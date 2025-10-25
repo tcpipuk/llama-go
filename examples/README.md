@@ -4,6 +4,16 @@ These examples cover everything from interactive chat with streaming output to b
 for custom integrations. If you want to see what llama-go can do, start with chat-streaming - it's
 the most complete demonstration of the API.
 
+**API pattern**: All examples use the Model/Context separation pattern:
+
+1. Load model weights with `llama.LoadModel()` (thread-safe, create once)
+2. Create execution context(s) with `model.NewContext()` (one per goroutine)
+3. Use context for inference: `ctx.Generate()`, `ctx.Chat()`, `ctx.GetEmbeddings()`, etc.
+4. Clean up with `defer model.Close()` and `defer ctx.Close()`
+
+See the [API guide](../docs/api-guide.md) for detailed explanations of Model vs Context, option
+types (ModelOption vs ContextOption), thread safety, and resource management.
+
 ## Interactive streaming chat
 
 The chat-streaming example shows the full API in action: structured chat messages, streaming deltas,

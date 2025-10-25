@@ -19,11 +19,13 @@ import (
 // - Position tracking and accepted token handling
 // - Error conditions and edge cases
 
-var _ = Describe("Model.GenerateWithDraft", func() {
+var _ = Describe("Context.GenerateWithDraft", func() {
 	var (
 		modelPath   string
 		targetModel *llama.Model
 		draftModel  *llama.Model
+		targetCtx   *llama.Context
+		draftCtx    *llama.Context
 		testPrompt  = "The capital of France is"
 	)
 
@@ -35,6 +37,14 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 	})
 
 	AfterEach(func() {
+		if draftCtx != nil {
+			draftCtx.Close()
+			draftCtx = nil
+		}
+		if targetCtx != nil {
+			targetCtx.Close()
+			targetCtx = nil
+		}
 		if draftModel != nil {
 			draftModel.Close()
 			draftModel = nil
@@ -45,26 +55,34 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 		}
 	})
 
-	Context("with valid target and draft models", func() {
+	Context("with valid target and draft contexts", func() {
 		BeforeEach(func() {
 			var err error
-			targetModel, err = llama.LoadModel(modelPath,
-				llama.WithContext(2048),
-				llama.WithThreads(4),
-			)
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(targetModel).NotTo(BeNil())
 
-			draftModel, err = llama.LoadModel(modelPath,
+			targetCtx, err = targetModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(targetCtx).NotTo(BeNil())
+
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
 			Expect(draftModel).NotTo(BeNil())
+
+			draftCtx, err = draftModel.NewContext(
+				llama.WithContext(2048),
+				llama.WithThreads(4),
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(draftCtx).NotTo(BeNil())
 		})
 
 		It("should perform speculative generation successfully", Label("integration"), func() {
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithTemperature(0.7),
 			)
@@ -73,7 +91,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 		})
 
 		It("should return generated text", Label("integration"), func() {
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(30),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -81,9 +99,9 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 			Expect(len(response)).To(BeNumerically(">", 0))
 		})
 
-		It("should use draft model for speculation", Label("integration"), func() {
-			// Verify speculative generation completes without draft model errors
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+		It("should use draft context for speculation", Label("integration"), func() {
+			// Verify speculative generation completes without draft context errors
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithDraftTokens(16),
 			)
@@ -91,9 +109,9 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 			Expect(response).NotTo(BeEmpty())
 		})
 
-		It("should verify with target model", Label("integration"), func() {
-			// Speculative sampling uses target model for verification
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+		It("should verify with target context", Label("integration"), func() {
+			// Speculative sampling uses target context for verification
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -101,7 +119,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 		})
 
 		It("should produce coherent output", Label("integration"), func() {
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(100),
 				llama.WithTemperature(0.7),
 			)
@@ -114,13 +132,19 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 	Context("with draft token configuration", func() {
 		BeforeEach(func() {
 			var err error
-			targetModel, err = llama.LoadModel(modelPath,
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			targetCtx, err = targetModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			draftModel, err = llama.LoadModel(modelPath,
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -128,7 +152,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 		})
 
 		It("should apply WithDraftTokens option", Label("integration"), func() {
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithDraftTokens(8),
 			)
@@ -138,7 +162,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 
 		It("should use default 16 draft tokens when not specified", Label("integration"), func() {
 			// Default behaviour without WithDraftTokens
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -146,7 +170,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 		})
 
 		It("should accept draft_tokens=1", Label("integration"), func() {
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(30),
 				llama.WithDraftTokens(1),
 			)
@@ -155,7 +179,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 		})
 
 		It("should accept draft_tokens=64", Label("integration"), func() {
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithDraftTokens(64),
 			)
@@ -165,7 +189,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 
 		It("should use 16 if draft_tokens≤0", Label("integration"), func() {
 			// C++ defaults to 16 if draft_tokens ≤ 0
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithDraftTokens(0),
 			)
@@ -177,14 +201,20 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 	Context("with same model as target and draft", func() {
 		BeforeEach(func() {
 			var err error
-			targetModel, err = llama.LoadModel(modelPath,
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			targetCtx, err = targetModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Use same model for both target and draft
-			draftModel, err = llama.LoadModel(modelPath,
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -192,7 +222,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 		})
 
 		It("should work with same model for both", Label("integration"), func() {
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -200,7 +230,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 		})
 
 		It("should complete generation without errors", Label("integration"), func() {
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithDraftTokens(16),
 			)
@@ -209,7 +239,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 		})
 
 		It("should produce valid output", Label("integration"), func() {
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -217,97 +247,115 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 		})
 	})
 
-	Context("when draft model is closed", func() {
+	Context("when draft context is closed", func() {
 		BeforeEach(func() {
 			var err error
-			targetModel, err = llama.LoadModel(modelPath,
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			targetCtx, err = targetModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			draftModel, err = llama.LoadModel(modelPath,
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Close draft model before generation
-			draftModel.Close()
+			// Close draft context before generation
+			draftCtx.Close()
 		})
 
-		It("should return 'draft model is closed' error", Label("integration"), func() {
-			_, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+		It("should return 'context is closed' error", Label("integration"), func() {
+			_, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("draft model is closed"))
+			Expect(err.Error()).To(Equal("context is closed"))
 		})
 
 		It("should fail before generation starts", Label("integration"), func() {
-			_, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			_, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).To(HaveOccurred())
 			// Error should occur immediately, not after partial generation
-			Expect(err.Error()).To(Equal("draft model is closed"))
+			Expect(err.Error()).To(Equal("context is closed"))
 		})
 
 		It("should not crash or panic", Label("integration"), func() {
 			Expect(func() {
-				_, _ = targetModel.GenerateWithDraft(testPrompt, draftModel,
+				_, _ = targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 					llama.WithMaxTokens(50),
 				)
 			}).NotTo(Panic())
 		})
 	})
 
-	Context("when target model is closed", func() {
+	Context("when target context is closed", func() {
 		BeforeEach(func() {
 			var err error
-			targetModel, err = llama.LoadModel(modelPath,
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			targetCtx, err = targetModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			draftModel, err = llama.LoadModel(modelPath,
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Close target model before generation
-			targetModel.Close()
+			// Close target context before generation
+			targetCtx.Close()
 		})
 
-		It("should return 'model is closed' error", Label("integration"), func() {
-			_, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+		It("should return 'context is closed' error", Label("integration"), func() {
+			_, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("model is closed"))
+			Expect(err.Error()).To(Equal("context is closed"))
 		})
 
 		It("should fail before generation starts", Label("integration"), func() {
-			_, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			_, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("model is closed"))
+			Expect(err.Error()).To(Equal("context is closed"))
 		})
 	})
 
 	Context("with sampling parameters", func() {
 		BeforeEach(func() {
 			var err error
-			targetModel, err = llama.LoadModel(modelPath,
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			targetCtx, err = targetModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			draftModel, err = llama.LoadModel(modelPath,
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -315,7 +363,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 		})
 
 		It("should apply temperature to target model sampling", Label("integration"), func() {
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithTemperature(0.5),
 			)
@@ -324,7 +372,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 		})
 
 		It("should apply top_p and top_k", Label("integration"), func() {
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithTopP(0.9),
 				llama.WithTopK(50),
@@ -335,13 +383,13 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 
 		It("should use WithSeed for deterministic speculative generation", Label("integration"), func() {
 			// Generate twice with same seed
-			response1, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response1, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithSeed(12345),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			response2, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response2, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithSeed(12345),
 			)
@@ -355,13 +403,19 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 	Context("with speculative parameters", func() {
 		BeforeEach(func() {
 			var err error
-			targetModel, err = llama.LoadModel(modelPath,
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			targetCtx, err = targetModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			draftModel, err = llama.LoadModel(modelPath,
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -370,7 +424,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 
 		It("should use p_min=0.75 (hardcoded)", Label("integration"), func() {
 			// p_min is hardcoded to 0.75 in C++ layer
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -379,7 +433,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 
 		It("should generate draft tokens per iteration", Label("integration"), func() {
 			// Verify draft token generation happens
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithDraftTokens(16),
 			)
@@ -389,7 +443,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 
 		It("should accept/reject tokens based on target model", Label("integration"), func() {
 			// Speculative sampling accepts/rejects draft tokens via target model
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithDraftTokens(16),
 			)
@@ -401,13 +455,19 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 	Context("when speculative initialisation fails", func() {
 		BeforeEach(func() {
 			var err error
-			targetModel, err = llama.LoadModel(modelPath,
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			targetCtx, err = targetModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			draftModel, err = llama.LoadModel(modelPath,
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -417,7 +477,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 		It("should return error containing 'Failed to initialize speculative sampling'", Label("integration"), func() {
 			// This tests error message format; actual init failure is hard to trigger
 			// but would come from C++ layer with this message
-			_, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			_, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			// In normal operation, this should succeed
@@ -429,7 +489,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 
 		It("should handle tokenisation failures", Label("integration"), func() {
 			// Empty prompt should trigger tokenisation failure
-			_, err := targetModel.GenerateWithDraft("", draftModel,
+			_, err := targetCtx.GenerateWithDraft("", draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			if err != nil {
@@ -441,13 +501,19 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 	Context("with prompt validation", func() {
 		BeforeEach(func() {
 			var err error
-			targetModel, err = llama.LoadModel(modelPath,
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			targetCtx, err = targetModel.NewContext(
 				llama.WithContext(128), // Small context for testing
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			draftModel, err = llama.LoadModel(modelPath,
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(
 				llama.WithContext(128),
 				llama.WithThreads(4),
 			)
@@ -456,7 +522,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 
 		It("should validate prompt on target context", Label("integration"), func() {
 			// Normal prompt should work
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(20),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -470,7 +536,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 				longPrompt += "This is a very long prompt that will exceed the context size. "
 			}
 
-			_, err := targetModel.GenerateWithDraft(longPrompt, draftModel,
+			_, err := targetCtx.GenerateWithDraft(longPrompt, draftCtx,
 				llama.WithMaxTokens(10),
 			)
 			Expect(err).To(HaveOccurred())
@@ -480,7 +546,7 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 
 		It("should tokenise prompt before speculative sampling starts", Label("integration"), func() {
 			// Tokenisation happens before speculative loop
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(30),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -489,11 +555,13 @@ var _ = Describe("Model.GenerateWithDraft", func() {
 	})
 })
 
-var _ = Describe("Model.GenerateWithDraftStream", func() {
+var _ = Describe("Context.GenerateWithDraftStream", func() {
 	var (
 		modelPath   string
 		targetModel *llama.Model
 		draftModel  *llama.Model
+		targetCtx   *llama.Context
+		draftCtx    *llama.Context
 		testPrompt  = "The capital of France is"
 	)
 
@@ -505,6 +573,14 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 	})
 
 	AfterEach(func() {
+		if draftCtx != nil {
+			draftCtx.Close()
+			draftCtx = nil
+		}
+		if targetCtx != nil {
+			targetCtx.Close()
+			targetCtx = nil
+		}
 		if draftModel != nil {
 			draftModel.Close()
 			draftModel = nil
@@ -518,13 +594,19 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 	Context("with streaming callback", func() {
 		BeforeEach(func() {
 			var err error
-			targetModel, err = llama.LoadModel(modelPath,
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			targetCtx, err = targetModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			draftModel, err = llama.LoadModel(modelPath,
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -538,7 +620,7 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 				return true
 			}
 
-			err := targetModel.GenerateWithDraftStream(testPrompt, draftModel, callback,
+			err := targetCtx.GenerateWithDraftStream(testPrompt, draftCtx, callback,
 				llama.WithMaxTokens(30),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -552,7 +634,7 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 				return true
 			}
 
-			err := targetModel.GenerateWithDraftStream(testPrompt, draftModel, callback,
+			err := targetCtx.GenerateWithDraftStream(testPrompt, draftCtx, callback,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -567,7 +649,7 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 				return tokenCount < maxTokens
 			}
 
-			err := targetModel.GenerateWithDraftStream(testPrompt, draftModel, callback,
+			err := targetCtx.GenerateWithDraftStream(testPrompt, draftCtx, callback,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -578,13 +660,19 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 	Context("when callback returns false", func() {
 		BeforeEach(func() {
 			var err error
-			targetModel, err = llama.LoadModel(modelPath,
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			targetCtx, err = targetModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			draftModel, err = llama.LoadModel(modelPath,
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -601,7 +689,7 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 				return false
 			}
 
-			err := targetModel.GenerateWithDraftStream(testPrompt, draftModel, callback,
+			err := targetCtx.GenerateWithDraftStream(testPrompt, draftCtx, callback,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -613,7 +701,7 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 				return false // Stop on first token
 			}
 
-			err := targetModel.GenerateWithDraftStream(testPrompt, draftModel, callback,
+			err := targetCtx.GenerateWithDraftStream(testPrompt, draftCtx, callback,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -626,7 +714,7 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 				return len(accumulated) < 20 // Stop after ~20 characters
 			}
 
-			err := targetModel.GenerateWithDraftStream(testPrompt, draftModel, callback,
+			err := targetCtx.GenerateWithDraftStream(testPrompt, draftCtx, callback,
 				llama.WithMaxTokens(100),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -637,13 +725,19 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 	Context("with stop words in speculative streaming", func() {
 		BeforeEach(func() {
 			var err error
-			targetModel, err = llama.LoadModel(modelPath,
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			targetCtx, err = targetModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			draftModel, err = llama.LoadModel(modelPath,
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -657,7 +751,7 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 				return true
 			}
 
-			err := targetModel.GenerateWithDraftStream(testPrompt, draftModel, callback,
+			err := targetCtx.GenerateWithDraftStream(testPrompt, draftCtx, callback,
 				llama.WithMaxTokens(100),
 				llama.WithStopWords("."),
 			)
@@ -672,7 +766,7 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 				return true
 			}
 
-			err := targetModel.GenerateWithDraftStream("Count: 1, 2, 3", draftModel, callback,
+			err := targetCtx.GenerateWithDraftStream("Count: 1, 2, 3", draftCtx, callback,
 				llama.WithMaxTokens(100),
 				llama.WithStopWords("3"),
 			)
@@ -682,35 +776,41 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 		})
 	})
 
-	Context("when draft model is closed during streaming", func() {
+	Context("when draft context is closed during streaming", func() {
 		BeforeEach(func() {
 			var err error
-			targetModel, err = llama.LoadModel(modelPath,
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			targetCtx, err = targetModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			draftModel, err = llama.LoadModel(modelPath,
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Close draft model before streaming
-			draftModel.Close()
+			// Close draft context before streaming
+			draftCtx.Close()
 		})
 
-		It("should return 'draft model is closed' error", Label("integration"), func() {
+		It("should return 'context is closed' error", Label("integration"), func() {
 			callback := func(token string) bool {
 				return true
 			}
 
-			err := targetModel.GenerateWithDraftStream(testPrompt, draftModel, callback,
+			err := targetCtx.GenerateWithDraftStream(testPrompt, draftCtx, callback,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("draft model is closed"))
+			Expect(err.Error()).To(Equal("context is closed"))
 		})
 
 		It("should not call callback after error", Label("integration"), func() {
@@ -720,7 +820,7 @@ var _ = Describe("Model.GenerateWithDraftStream", func() {
 				return true
 			}
 
-			err := targetModel.GenerateWithDraftStream(testPrompt, draftModel, callback,
+			err := targetCtx.GenerateWithDraftStream(testPrompt, draftCtx, callback,
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).To(HaveOccurred())
@@ -733,7 +833,9 @@ var _ = Describe("Speculative Sampling Edge Cases", func() {
 	var (
 		modelPath   string
 		targetModel *llama.Model
+		targetCtx   *llama.Context
 		draftModel  *llama.Model
+		draftCtx    *llama.Context
 		testPrompt  = "The capital of France is"
 	)
 
@@ -744,13 +846,19 @@ var _ = Describe("Speculative Sampling Edge Cases", func() {
 		}
 
 		var err error
-		targetModel, err = llama.LoadModel(modelPath,
+		targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+		Expect(err).NotTo(HaveOccurred())
+
+		targetCtx, err = targetModel.NewContext(
 			llama.WithContext(2048),
 			llama.WithThreads(4),
 		)
 		Expect(err).NotTo(HaveOccurred())
 
-		draftModel, err = llama.LoadModel(modelPath,
+		draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+		Expect(err).NotTo(HaveOccurred())
+
+		draftCtx, err = draftModel.NewContext(
 			llama.WithContext(2048),
 			llama.WithThreads(4),
 		)
@@ -758,6 +866,12 @@ var _ = Describe("Speculative Sampling Edge Cases", func() {
 	})
 
 	AfterEach(func() {
+		if draftCtx != nil {
+			draftCtx.Close()
+		}
+		if targetCtx != nil {
+			targetCtx.Close()
+		}
 		if draftModel != nil {
 			draftModel.Close()
 		}
@@ -769,7 +883,7 @@ var _ = Describe("Speculative Sampling Edge Cases", func() {
 	Context("with position tracking", func() {
 		It("should increment position by accepted tokens only", Label("integration"), func() {
 			// This tests the fix for position tracking bug
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithDraftTokens(16),
 			)
@@ -780,7 +894,7 @@ var _ = Describe("Speculative Sampling Edge Cases", func() {
 
 		It("should not increment by draft token count", Label("integration"), func() {
 			// Position should only advance by accepted tokens, not all draft tokens
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithDraftTokens(32), // Large draft count
 			)
@@ -790,7 +904,7 @@ var _ = Describe("Speculative Sampling Edge Cases", func() {
 
 		It("should maintain correct position through multiple iterations", Label("integration"), func() {
 			// Multiple speculative iterations should maintain correct position
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(100),
 				llama.WithDraftTokens(16),
 			)
@@ -802,7 +916,7 @@ var _ = Describe("Speculative Sampling Edge Cases", func() {
 	Context("with decode failures", func() {
 		It("should handle target decode failures gracefully", Label("integration"), func() {
 			// Normal operation should succeed
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			// Decode failures would result in error or early termination
@@ -815,7 +929,7 @@ var _ = Describe("Speculative Sampling Edge Cases", func() {
 
 		It("should output 'target decode failed, stopping' to debug", Label("integration"), func() {
 			// With WithDebug(), decode failures output to stderr
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithDebug(),
 			)
@@ -830,7 +944,7 @@ var _ = Describe("Speculative Sampling Edge Cases", func() {
 
 		It("should return error with details", Label("integration"), func() {
 			// Decode failures should return descriptive errors
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			if err != nil {
@@ -845,7 +959,7 @@ var _ = Describe("Speculative Sampling Edge Cases", func() {
 	Context("with sampler errors", func() {
 		It("should return error when sampler init fails", Label("integration"), func() {
 			// Normal configuration should succeed
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 			)
 			// Sampler init failure would return specific error
@@ -858,7 +972,7 @@ var _ = Describe("Speculative Sampling Edge Cases", func() {
 
 		It("should handle sampling failures during generation", Label("integration"), func() {
 			// Sampling should work correctly in normal operation
-			response, err := targetModel.GenerateWithDraft(testPrompt, draftModel,
+			response, err := targetCtx.GenerateWithDraft(testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithTemperature(0.8),
 				llama.WithTopP(0.95),

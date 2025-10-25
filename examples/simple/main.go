@@ -11,6 +11,7 @@
 //
 // The example demonstrates:
 //   - Loading a GGUF model with configuration options
+//   - Creating an execution context
 //   - Performing synchronous text generation
 //   - Customising sampling parameters
 //   - GPU layer offloading for acceleration
@@ -23,7 +24,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"runtime"
 
 	llama "github.com/tcpipuk/llama-go"
 )
@@ -43,14 +43,10 @@ func main() {
 	)
 	flag.Parse()
 
-	// Load model with options
+	// Load model weights
 	fmt.Printf("Loading model: %s\n", *modelPath)
 	model, err := llama.LoadModel(*modelPath,
-		llama.WithContext(*context),
 		llama.WithGPULayers(*gpuLayers),
-		llama.WithThreads(runtime.NumCPU()),
-		llama.WithF16Memory(),
-		llama.WithMMap(true),
 	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading model: %v\n", err)
@@ -60,13 +56,15 @@ func main() {
 
 	fmt.Printf("Model loaded successfully.\n")
 
-	// Print model stats
-	stats, err := model.Stats()
+	// Create execution context
+	ctx, err := model.NewContext(
+		llama.WithContext(*context),
+	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting stats: %v\n", err)
-	} else {
-		fmt.Printf("\n%s\n", stats)
+		fmt.Fprintf(os.Stderr, "Error creating context: %v\n", err)
+		os.Exit(1)
 	}
+	defer ctx.Close()
 
 	fmt.Printf("Prompt: %s\n", *prompt)
 
@@ -81,7 +79,7 @@ func main() {
 		opts = append(opts, llama.WithDebug())
 	}
 
-	response, err := model.Generate(*prompt, opts...)
+	response, err := ctx.Generate(*prompt, opts...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating text: %v\n", err)
 		os.Exit(1)

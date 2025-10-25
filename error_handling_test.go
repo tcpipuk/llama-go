@@ -40,19 +40,22 @@ var _ = Describe("Model Loading Errors", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 
+			// Load model successfully
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+			defer model.Close()
+
 			// Attempt to trigger context creation failure with invalid configuration
 			// Using extremely small context size to potentially trigger failure
-			model, err := llama.LoadModel(modelPath,
-				llama.WithContext(1), // Extremely small context
-			)
+			ctx, err := model.NewContext(llama.WithContext(1))
 
 			// Note: This test may pass if the library handles small contexts gracefully
 			// The goal is to document the error message when context creation does fail
 			if err != nil {
 				Expect(err.Error()).To(ContainSubstring("Failed to create context"))
-				Expect(model).To(BeNil())
-			} else if model != nil {
-				model.Close()
+				Expect(ctx).To(BeNil())
+			} else if ctx != nil {
+				ctx.Close()
 			}
 		})
 
@@ -95,6 +98,8 @@ var _ = Describe("Model Loading Errors", func() {
 
 var _ = Describe("Generation Errors", func() {
 	var modelPath string
+	var model *llama.Model
+	var ctx *llama.Context
 
 	BeforeEach(func() {
 		modelPath = os.Getenv("TEST_CHAT_MODEL")
@@ -103,31 +108,46 @@ var _ = Describe("Generation Errors", func() {
 		}
 	})
 
+	AfterEach(func() {
+		if ctx != nil {
+			ctx.Close()
+			ctx = nil
+		}
+		if model != nil {
+			model.Close()
+			model = nil
+		}
+	})
+
 	Context("context validation", func() {
 		It("should return 'Context cannot be null' for null context", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
 
-			// Close the model to make context null, then attempt generation
-			model.Close()
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
-			_, err = model.Generate("test")
+			// Close the context to make it null, then attempt generation
+			ctx.Close()
+
+			_, err = ctx.Generate("test")
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("model is closed"))
+			Expect(err.Error()).To(Equal("context is closed"))
 		})
 
 		It("should return 'Invalid context size' for ctx size ≤ 0", Label("integration"), func() {
-			// This error is caught during model loading, not generation
-			// Loading with context size ≤ 0 should apply default of 2048
-			model, err := llama.LoadModel(modelPath,
-				llama.WithContext(0),
-			)
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			// This error is caught during context creation, not generation
+			// Creating context with size ≤ 0 should apply default
+			ctx, err = model.NewContext(llama.WithContext(0))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Generation should succeed because default context size was applied
-			response, err := model.Generate("Hello", llama.WithMaxTokens(1))
+			response, err := ctx.Generate("Hello", llama.WithMaxTokens(1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
@@ -135,45 +155,50 @@ var _ = Describe("Generation Errors", func() {
 
 	Context("prompt validation", func() {
 		It("should return 'Failed to tokenize prompt' for tokenisation failures", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Empty prompt may cause tokenisation to return empty vector
-			_, genErr := model.Generate("", llama.WithMaxTokens(1))
+			_, genErr := ctx.Generate("", llama.WithMaxTokens(1))
 			if genErr != nil {
 				Expect(genErr.Error()).To(ContainSubstring("Failed to tokenize prompt"))
 			}
 		})
 
 		It("should return 'Prompt too long for context size' when prompt fills context", Label("integration"), func() {
-			// Load model with very small context
-			model, err := llama.LoadModel(modelPath,
-				llama.WithContext(64), // Small context for testing
-			)
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			// Create context with very small size for testing
+			ctx, err = model.NewContext(llama.WithContext(64))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Create a very long prompt that will exceed context size
 			longPrompt := strings.Repeat("This is a very long prompt that should exceed the context window size. ", 100)
 
-			_, err = model.Generate(longPrompt, llama.WithMaxTokens(1))
+			_, err = ctx.Generate(longPrompt, llama.WithMaxTokens(1))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("Prompt too long for context size"))
 		})
 
 		It("should require at least 1 token space for generation", Label("integration"), func() {
-			// Load model with small context
-			model, err := llama.LoadModel(modelPath,
-				llama.WithContext(32),
-			)
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			// Create context with small size
+			ctx, err = model.NewContext(llama.WithContext(32))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Create prompt that fills context-1 tokens
 			longPrompt := strings.Repeat("word ", 50)
 
-			_, err = model.Generate(longPrompt, llama.WithMaxTokens(1))
+			_, err = ctx.Generate(longPrompt, llama.WithMaxTokens(1))
 			if err != nil {
 				Expect(err.Error()).To(ContainSubstring("need at least 1 token for generation"))
 			}
@@ -181,33 +206,33 @@ var _ = Describe("Generation Errors", func() {
 	})
 
 	Context("generation configuration", func() {
-		var model *llama.Model
-
-		BeforeEach(func() {
-			var err error
-			model, err = llama.LoadModel(modelPath, llama.WithContext(2048))
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		AfterEach(func() {
-			if model != nil {
-				model.Close()
-			}
-		})
-
 		It("should use default when max_tokens=0", Label("integration"), func() {
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+
 			// max_tokens=0 should use default (128), not error
-			result, err := model.Generate("Hello", llama.WithMaxTokens(0))
+			result, err := ctx.Generate("Hello", llama.WithMaxTokens(0))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).NotTo(BeEmpty())
 		})
 
 		It("should validate max_tokens ≤ 0", Label("integration"), func() {
-			_, err := model.Generate("Hello", llama.WithMaxTokens(-1))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = ctx.Generate("Hello", llama.WithMaxTokens(-1))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("Invalid max_tokens value"))
 
-			_, err = model.Generate("Hello", llama.WithMaxTokens(-100))
+			_, err = ctx.Generate("Hello", llama.WithMaxTokens(-100))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("Invalid max_tokens value"))
 		})
@@ -222,12 +247,15 @@ var _ = Describe("Generation Errors", func() {
 		})
 
 		It("should handle sampler failures gracefully", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Normal generation should succeed with valid parameters
-			response, err := model.Generate("Hello", llama.WithMaxTokens(5))
+			response, err := ctx.Generate("Hello", llama.WithMaxTokens(5))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
@@ -254,12 +282,15 @@ var _ = Describe("Generation Errors", func() {
 		})
 
 		It("should catch and wrap C++ exceptions", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Normal generation should not throw exceptions
-			response, err := model.Generate("Hello", llama.WithMaxTokens(5))
+			response, err := ctx.Generate("Hello", llama.WithMaxTokens(5))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
@@ -268,6 +299,8 @@ var _ = Describe("Generation Errors", func() {
 
 var _ = Describe("Speculative Generation Errors", func() {
 	var modelPath string
+	var targetModel, draftModel *llama.Model
+	var targetCtx, draftCtx *llama.Context
 
 	BeforeEach(func() {
 		modelPath = os.Getenv("TEST_CHAT_MODEL")
@@ -276,38 +309,68 @@ var _ = Describe("Speculative Generation Errors", func() {
 		}
 	})
 
+	AfterEach(func() {
+		if targetCtx != nil {
+			targetCtx.Close()
+			targetCtx = nil
+		}
+		if draftCtx != nil {
+			draftCtx.Close()
+			draftCtx = nil
+		}
+		if targetModel != nil {
+			targetModel.Close()
+			targetModel = nil
+		}
+		if draftModel != nil {
+			draftModel.Close()
+			draftModel = nil
+		}
+	})
+
 	Context("model validation", func() {
 		It("should return 'Target and draft contexts cannot be null' for null contexts", Label("integration"), func() {
-			targetModel, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer targetModel.Close()
 
-			draftModel, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer draftModel.Close()
 
-			// Close draft model to make context null
-			draftModel.Close()
+			targetCtx, err = targetModel.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
-			_, err = targetModel.GenerateWithDraft("Hello", draftModel, llama.WithMaxTokens(5))
+			draftCtx, err = draftModel.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+
+			// Close draft context to make it null
+			draftCtx.Close()
+
+			_, err = targetCtx.GenerateWithDraft("Hello", draftCtx, llama.WithMaxTokens(5))
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("draft model is closed"))
+			Expect(err.Error()).To(Equal("draft context is closed"))
 		})
 
-		It("should validate both target and draft models", Label("integration"), func() {
-			targetModel, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+		It("should validate both target and draft contexts", Label("integration"), func() {
+			var err error
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 
-			draftModel, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer draftModel.Close()
 
-			// Close target model
-			targetModel.Close()
+			targetCtx, err = targetModel.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
-			_, err = targetModel.GenerateWithDraft("Hello", draftModel, llama.WithMaxTokens(5))
+			draftCtx, err = draftModel.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+
+			// Close target context
+			targetCtx.Close()
+
+			_, err = targetCtx.GenerateWithDraft("Hello", draftCtx, llama.WithMaxTokens(5))
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("model is closed"))
+			Expect(err.Error()).To(Equal("context is closed"))
 		})
 	})
 
@@ -318,16 +381,21 @@ var _ = Describe("Speculative Generation Errors", func() {
 		})
 
 		It("should return 'Failed to tokenize prompt' for tokenisation failures", Label("integration"), func() {
-			targetModel, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer targetModel.Close()
 
-			draftModel, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer draftModel.Close()
+
+			targetCtx, err = targetModel.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Empty prompt may cause tokenisation failure
-			_, genErr := targetModel.GenerateWithDraft("", draftModel, llama.WithMaxTokens(1))
+			_, genErr := targetCtx.GenerateWithDraft("", draftCtx, llama.WithMaxTokens(1))
 			if genErr != nil {
 				Expect(genErr.Error()).To(ContainSubstring("Failed to tokenize prompt"))
 			}
@@ -346,16 +414,21 @@ var _ = Describe("Speculative Generation Errors", func() {
 		})
 
 		It("should handle decode failures during generation", Label("integration"), func() {
-			targetModel, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer targetModel.Close()
 
-			draftModel, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer draftModel.Close()
+
+			targetCtx, err = targetModel.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+
+			draftCtx, err = draftModel.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Normal speculative generation should succeed
-			response, err := targetModel.GenerateWithDraft("Hello", draftModel, llama.WithMaxTokens(5))
+			response, err := targetCtx.GenerateWithDraft("Hello", draftCtx, llama.WithMaxTokens(5))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
@@ -376,6 +449,8 @@ var _ = Describe("Speculative Generation Errors", func() {
 
 var _ = Describe("Tokenization Errors", func() {
 	var modelPath string
+	var model *llama.Model
+	var ctx *llama.Context
 
 	BeforeEach(func() {
 		modelPath = os.Getenv("TEST_CHAT_MODEL")
@@ -384,26 +459,50 @@ var _ = Describe("Tokenization Errors", func() {
 		}
 	})
 
+	AfterEach(func() {
+		if ctx != nil {
+			ctx.Close()
+			ctx = nil
+		}
+		if model != nil {
+			model.Close()
+			model = nil
+		}
+	})
+
 	Context("parameter validation", func() {
 		It("should return 'Invalid parameters for tokenization' for null ctx", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 
-			// Close model to make context null
-			model.Close()
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
-			_, err = model.Tokenize("Hello")
+			// Close context to make it unavailable
+			ctx.Close()
+
+			// Tokenize is now a method of Context - test closed context
+			tokens, err := ctx.Tokenize("Hello")
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("model is closed"))
+			Expect(err.Error()).To(Equal("context is closed"))
+			Expect(tokens).To(BeNil())
+
+			model.Close()
 		})
 
 		It("should return 'Invalid parameters for tokenization' for null text", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			defer model.Close()
 
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// Empty string is the closest we can get to null in Go
-			tokens, err := model.Tokenize("")
+			tokens, err := ctx.Tokenize("")
 			// Empty string may be handled gracefully or return error
 			// Documenting actual behaviour
 			if err != nil {
@@ -428,12 +527,17 @@ var _ = Describe("Tokenization Errors", func() {
 		})
 
 		It("should handle tokenisation exceptions gracefully", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			defer model.Close()
 
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// Normal tokenisation should not throw exceptions
-			tokens, err := model.Tokenize("Hello, world!")
+			tokens, err := ctx.Tokenize("Hello, world!")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tokens).NotTo(BeEmpty())
 		})
@@ -442,6 +546,8 @@ var _ = Describe("Tokenization Errors", func() {
 
 var _ = Describe("Embedding Errors", func() {
 	var modelPath string
+	var model *llama.Model
+	var ctx *llama.Context
 
 	BeforeEach(func() {
 		modelPath = os.Getenv("TEST_CHAT_MODEL")
@@ -450,26 +556,44 @@ var _ = Describe("Embedding Errors", func() {
 		}
 	})
 
+	AfterEach(func() {
+		if ctx != nil {
+			ctx.Close()
+			ctx = nil
+		}
+		if model != nil {
+			model.Close()
+			model = nil
+		}
+	})
+
 	Context("parameter validation", func() {
 		It("should return 'Invalid parameters for embeddings' for null ctx", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithEmbeddings())
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 
-			// Close model to make context null
-			model.Close()
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
-			_, err = model.GetEmbeddings("Hello")
+			// Close context to make it null
+			ctx.Close()
+
+			_, err = ctx.GetEmbeddings("Hello")
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("model is closed"))
+			Expect(err.Error()).To(Equal("context is closed"))
 		})
 
 		It("should return 'Failed to tokenize text for embeddings' for empty text", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithEmbeddings())
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Empty string is the closest we can get to null in Go
-			embeddings, err := model.GetEmbeddings("")
+			embeddings, err := ctx.GetEmbeddings("")
 			// Empty string should trigger tokenisation error
 			if err != nil {
 				Expect(err.Error()).To(ContainSubstring("Failed to tokenize text for embeddings"))
@@ -492,12 +616,15 @@ var _ = Describe("Embedding Errors", func() {
 				Skip("TEST_EMBEDDING_MODEL not set - skipping integration test")
 			}
 
-			model, err := llama.LoadModel(embModelPath, llama.WithEmbeddings())
+			var err error
+			model, err = llama.LoadModel(embModelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Empty string triggers tokenization failure (returns empty token vector)
-			_, err = model.GetEmbeddings("")
+			_, err = ctx.GetEmbeddings("")
 			if err != nil {
 				Expect(err.Error()).To(ContainSubstring("Failed to tokenize text for embeddings"))
 			}
@@ -510,13 +637,16 @@ var _ = Describe("Embedding Errors", func() {
 		})
 
 		It("should return 'Failed to get embeddings from context' when embeddings null", Label("integration"), func() {
+			var err error
 			// Load model WITHOUT embeddings mode
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
 
-			// Attempt to get embeddings from non-embedding model
-			_, err = model.GetEmbeddings("Hello")
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+
+			// Attempt to get embeddings from non-embedding context
+			_, err = ctx.GetEmbeddings("Hello")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("Failed to get embeddings from context"))
 		})
@@ -534,12 +664,15 @@ var _ = Describe("Embedding Errors", func() {
 				Skip("TEST_EMBEDDING_MODEL not set - skipping integration test")
 			}
 
-			model, err := llama.LoadModel(embModelPath, llama.WithEmbeddings())
+			var err error
+			model, err = llama.LoadModel(embModelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Normal embedding generation should not throw exceptions
-			embeddings, err := model.GetEmbeddings("Hello, world!")
+			embeddings, err := ctx.GetEmbeddings("Hello, world!")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(embeddings).NotTo(BeEmpty())
 		})
@@ -548,11 +681,24 @@ var _ = Describe("Embedding Errors", func() {
 
 var _ = Describe("Debug Messages", func() {
 	var modelPath string
+	var model *llama.Model
+	var ctx *llama.Context
 
 	BeforeEach(func() {
 		modelPath = os.Getenv("TEST_CHAT_MODEL")
 		if modelPath == "" {
 			Skip("TEST_CHAT_MODEL not set - skipping integration test")
+		}
+	})
+
+	AfterEach(func() {
+		if ctx != nil {
+			ctx.Close()
+			ctx = nil
+		}
+		if model != nil {
+			model.Close()
+			model = nil
 		}
 	})
 
@@ -564,13 +710,16 @@ var _ = Describe("Debug Messages", func() {
 		})
 
 		It("should output 'INFO: End of generation token encountered' on EOS", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Generate with debug enabled
 			// EOS token should be encountered naturally
-			response, err := model.Generate("Say hello:", llama.WithMaxTokens(50), llama.WithDebug())
+			response, err := ctx.Generate("Say hello:", llama.WithMaxTokens(50), llama.WithDebug())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 
@@ -579,9 +728,12 @@ var _ = Describe("Debug Messages", func() {
 		})
 
 		It("should output 'INFO: Generation stopped by callback' when callback returns false", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Create callback that returns false immediately
 			tokenCount := 0
@@ -590,7 +742,7 @@ var _ = Describe("Debug Messages", func() {
 				return false // Stop after first token
 			}
 
-			err = model.GenerateStream("Hello", callback, llama.WithMaxTokens(50), llama.WithDebug())
+			err = ctx.GenerateStream("Hello", callback, llama.WithMaxTokens(50), llama.WithDebug())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tokenCount).To(Equal(1))
 
@@ -598,12 +750,15 @@ var _ = Describe("Debug Messages", func() {
 		})
 
 		It("should output 'INFO: Stop word found, ending generation' when stop word found", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Generate with stop word that should be encountered
-			response, err := model.Generate("Hello world", llama.WithMaxTokens(50), llama.WithStopWords("world"), llama.WithDebug())
+			response, err := ctx.Generate("Hello world", llama.WithMaxTokens(50), llama.WithStopWords("world"), llama.WithDebug())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 
@@ -618,6 +773,20 @@ var _ = Describe("Debug Messages", func() {
 })
 
 var _ = Describe("Error Message Quality", func() {
+	var model *llama.Model
+	var ctx *llama.Context
+
+	AfterEach(func() {
+		if ctx != nil {
+			ctx.Close()
+			ctx = nil
+		}
+		if model != nil {
+			model.Close()
+			model = nil
+		}
+	})
+
 	Context("actionable error messages", func() {
 		It("should include file path in load errors", Label("unit"), func() {
 			testPath := "/nonexistent/model.gguf"
@@ -637,12 +806,15 @@ var _ = Describe("Error Message Quality", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 
-			model, err := llama.LoadModel(modelPath, llama.WithContext(32))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			ctx, err = model.NewContext(llama.WithContext(32))
+			Expect(err).NotTo(HaveOccurred())
 
 			longPrompt := strings.Repeat("word ", 100)
-			_, err = model.Generate(longPrompt, llama.WithMaxTokens(1))
+			_, err = ctx.Generate(longPrompt, llama.WithMaxTokens(1))
 			if err != nil {
 				Expect(err.Error()).To(ContainSubstring("context size"))
 			}
@@ -660,12 +832,15 @@ var _ = Describe("Error Message Quality", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Test invalid max_tokens (negative value)
-			_, err = model.Generate("Hello", llama.WithMaxTokens(-1))
+			_, err = ctx.Generate("Hello", llama.WithMaxTokens(-1))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(HavePrefix("generation failed:"))
 		})
@@ -678,12 +853,15 @@ var _ = Describe("Error Message Quality", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Trigger C++ error (prompt + max_tokens exceeds context)
-			_, err = model.Generate("Hello", llama.WithMaxTokens(10000))
+			_, err = ctx.Generate("Hello", llama.WithMaxTokens(10000))
 			Expect(err).To(HaveOccurred())
 			// Error should be wrapped with "generation failed:" prefix
 			Expect(err.Error()).To(ContainSubstring("generation failed:"))
@@ -707,22 +885,26 @@ var _ = Describe("Error Message Quality", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 
-			// Close model and test various operations
-			model.Close()
+			ctx, err = model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
 
-			_, genErr := model.Generate("test")
+			// Close context and test various operations
+			ctx.Close()
+
+			_, genErr := ctx.Generate("test")
 			Expect(genErr).To(HaveOccurred())
-			Expect(genErr.Error()).To(Equal("model is closed"))
+			Expect(genErr.Error()).To(Equal("context is closed"))
 
-			_, tokErr := model.Tokenize("test")
-			Expect(tokErr).To(HaveOccurred())
-			Expect(tokErr.Error()).To(Equal("model is closed"))
+			_, embErr := ctx.GetEmbeddings("test")
+			Expect(embErr).To(HaveOccurred())
+			Expect(embErr.Error()).To(Equal("context is closed"))
 
-			// All "model is closed" errors should have identical format
-			Expect(genErr.Error()).To(Equal(tokErr.Error()))
+			// All "context is closed" errors should have identical format
+			Expect(genErr.Error()).To(Equal(embErr.Error()))
 		})
 	})
 })

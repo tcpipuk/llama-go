@@ -59,10 +59,7 @@ func main() {
 	// Load model
 	fmt.Printf("Loading model: %s\n", *modelPath)
 	model, err := llama.LoadModel(*modelPath,
-		llama.WithContext(*contextLen),
 		llama.WithGPULayers(*gpuLayers),
-		llama.WithThreads(runtime.NumCPU()),
-		llama.WithF16Memory(),
 		llama.WithMMap(true),
 	)
 	if err != nil {
@@ -70,22 +67,33 @@ func main() {
 	}
 	defer model.Close()
 
+	// Create context
+	ctx, err := model.NewContext(
+		llama.WithContext(*contextLen),
+		llama.WithThreads(runtime.NumCPU()),
+		llama.WithF16Memory(),
+	)
+	if err != nil {
+		log.Fatalf("Failed to create context: %v", err)
+	}
+	defer ctx.Close()
+
 	fmt.Printf("Model loaded successfully.\n\n")
 
 	if *useChannel {
-		streamWithChannels(model)
+		streamWithChannels(ctx)
 	} else {
-		streamWithCallbacks(model)
+		streamWithCallbacks(ctx)
 	}
 }
 
-func streamWithCallbacks(model *llama.Model) {
+func streamWithCallbacks(ctx *llama.Context) {
 	fmt.Println("=== Callback-based streaming ===")
 	fmt.Printf("Prompt: %s\n", *prompt)
 	fmt.Printf("Max tokens: %d\n\n", *maxTokens)
 
 	var result strings.Builder
-	err := model.GenerateStream(*prompt,
+	err := ctx.GenerateStream(*prompt,
 		func(token string) bool {
 			fmt.Print(token)
 			result.WriteString(token)
@@ -104,16 +112,16 @@ func streamWithCallbacks(model *llama.Model) {
 	fmt.Printf("\n\n=== Complete (%d chars) ===\n", result.Len())
 }
 
-func streamWithChannels(model *llama.Model) {
+func streamWithChannels(ctx *llama.Context) {
 	fmt.Println("=== Channel-based streaming ===")
 	fmt.Printf("Prompt: %s\n", *prompt)
 	fmt.Printf("Max tokens: %d\n", *maxTokens)
 	fmt.Printf("Timeout: %d seconds\n\n", *timeout)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*timeout)*time.Second)
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), time.Duration(*timeout)*time.Second)
 	defer cancel()
 
-	tokenCh, errCh := model.GenerateChannel(ctx, *prompt,
+	tokenCh, errCh := ctx.GenerateChannel(ctxTimeout, *prompt,
 		llama.WithMaxTokens(*maxTokens),
 		llama.WithTemperature(float32(*temp)),
 		llama.WithTopP(float32(*topP)),
@@ -141,9 +149,9 @@ func streamWithChannels(model *llama.Model) {
 				log.Fatalf("Generation error: %v", err)
 			}
 
-		case <-ctx.Done():
+		case <-ctxTimeout.Done():
 			fmt.Printf("\n\n=== Cancelled (%v) after %d tokens ===\n",
-				ctx.Err(), tokenCount)
+				ctxTimeout.Err(), tokenCount)
 			return
 		}
 	}

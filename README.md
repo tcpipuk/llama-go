@@ -15,7 +15,8 @@ PyTorch and/or vLLM.
 **Documentation**:
 
 - **Getting started**: [Installation guide](docs/getting-started.md) |
-  [Build options](docs/building.md)
+  [API guide](docs/api-guide.md) | [Build options](docs/building.md)
+- **Migration**: [v1 to v2 migration guide](MIGRATION.md) for upgrading from the old API
 - **API reference**: [pkg.go.dev](https://pkg.go.dev/github.com/tcpipuk/llama-go) (complete godoc
   with examples)
 - **Examples**: [Working code examples](examples/) for chat, streaming, embeddings, speculative
@@ -53,22 +54,32 @@ import (
 )
 
 func main() {
+    // Load model weights (ModelOption: WithGPULayers, WithMLock, etc.)
     model, err := llama.LoadModel(
         "/path/to/model.gguf",
-        llama.WithF16Memory(),
-        llama.WithContext(512),
+        llama.WithGPULayers(-1), // Offload all layers to GPU
     )
     if err != nil {
         panic(err)
     }
     defer model.Close()
 
+    // Create execution context (ContextOption: WithContext, WithBatch, etc.)
+    ctx, err := model.NewContext(
+        llama.WithContext(2048),
+        llama.WithF16Memory(),
+    )
+    if err != nil {
+        panic(err)
+    }
+    defer ctx.Close()
+
     // Chat completion (uses model's chat template)
     messages := []llama.ChatMessage{
         {Role: "system", Content: "You are a helpful assistant."},
         {Role: "user", Content: "What is the capital of France?"},
     }
-    response, err := model.Chat(context.Background(), messages, llama.ChatOptions{
+    response, err := ctx.Chat(context.Background(), messages, llama.ChatOptions{
         MaxTokens: llama.Int(100),
     })
     if err != nil {
@@ -77,7 +88,7 @@ func main() {
     fmt.Println(response.Content)
 
     // Or raw text generation
-    text, err := model.Generate("Hello world", llama.WithMaxTokens(50))
+    text, err := ctx.Generate("Hello world", llama.WithMaxTokens(50))
     if err != nil {
         panic(err)
     }
@@ -105,10 +116,12 @@ hardware, plus distributed inference via RPC.
 including CUDA builds. Active development tracking llama.cpp releases - maintained for production
 use, not a demo project.
 
-**Advanced features**: Cache common prompt prefixes to avoid recomputing system prompts across
-thousands of generations. Serve multiple concurrent requests with a single model loaded in VRAM (no
-weight duplication). Stream tokens via callbacks or buffered channels (decouples GPU inference from
-slow processing). Speculative decoding for 2-3× generation speedup.
+**Advanced features**: Model/Context separation enables efficient VRAM usage - load model weights
+once, create multiple contexts with different configurations. Cache common prompt prefixes to avoid
+recomputing system prompts across thousands of generations. Serve multiple concurrent requests with
+a single model loaded in VRAM (no weight duplication). Stream tokens via callbacks or buffered
+channels (decouples GPU inference from slow processing). Speculative decoding for 2-3× generation
+speedup.
 
 ## Architecture
 
@@ -116,15 +129,21 @@ The library bridges Go and C++ using CGO, keeping the heavy computation in llama
 C++ code whilst providing a clean Go API. This minimises CGO overhead whilst maximising
 performance.
 
+**Model/Context separation**: The API separates model weights (Model) from execution state
+(Context). Load model weights once, create multiple contexts with different configurations. Each
+context maintains its own KV cache and state for independent inference operations.
+
 Key components:
 
 - `wrapper.cpp`/`wrapper.h` - CGO interface to llama.cpp
+- `model.go` - Model loading and weight management (thread-safe)
+- `context.go` - Execution contexts for inference (one per goroutine)
 - Clean Go API with comprehensive godoc comments
 - `llama.cpp/` - Git submodule tracking upstream releases
 
-The design uses functional options for configuration, dynamic context pooling for thread safety,
-automatic KV cache prefix reuse for performance, resource management with finalizers, and streaming
-callbacks via cgo.Handle for safe Go-C interaction.
+The design uses functional options for configuration (ModelOption vs ContextOption), explicit
+context creation for thread safety, automatic KV cache prefix reuse for performance, resource
+management with finalizers, and streaming callbacks via cgo.Handle for safe Go-C interaction.
 
 ## Licence
 

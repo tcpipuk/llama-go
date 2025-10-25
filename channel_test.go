@@ -26,6 +26,7 @@ import (
 var _ = Describe("Model.GenerateChannel", func() {
 	var (
 		model     *llama.Model
+		ctx       *llama.Context
 		modelPath string
 	)
 
@@ -36,15 +37,21 @@ var _ = Describe("Model.GenerateChannel", func() {
 		}
 
 		var err error
-		model, err = llama.LoadModel(modelPath,
+		model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(model).NotTo(BeNil())
+
+		ctx, err = model.NewContext(
 			llama.WithContext(2048),
 			llama.WithThreads(4),
 		)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(model).NotTo(BeNil())
 	})
 
 	AfterEach(func() {
+		if ctx != nil {
+			ctx.Close()
+		}
 		if model != nil {
 			model.Close()
 		}
@@ -52,8 +59,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 
 	Context("basic channel streaming", func() {
 		It("should stream tokens via channel", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Hello",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Hello",
 				llama.WithMaxTokens(10))
 
 			var result strings.Builder
@@ -77,8 +84,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 		})
 
 		It("should deliver all generated tokens", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "The capital of France is",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "The capital of France is",
 				llama.WithMaxTokens(20),
 				llama.WithSeed(42))
 
@@ -104,8 +111,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 		})
 
 		It("should receive non-empty token strings", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Test",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
 				llama.WithMaxTokens(10))
 
 			var err error
@@ -132,9 +139,9 @@ var _ = Describe("Model.GenerateChannel", func() {
 
 	Context("context cancellation", func() {
 		It("should stop generation when context cancelled", Label("integration", "channel"), func() {
-			ctx, cancel := context.WithCancel(context.Background())
+			bgCtx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Write a very long story about dragons and knights",
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Write a very long story about dragons and knights",
 				llama.WithMaxTokens(1000))
 
 			tokenCount := 0
@@ -165,10 +172,10 @@ var _ = Describe("Model.GenerateChannel", func() {
 		})
 
 		It("should allow immediate cancellation", Label("integration", "channel"), func() {
-			ctx, cancel := context.WithCancel(context.Background())
+			bgCtx, cancel := context.WithCancel(context.Background())
 			cancel() // Cancel before any tokens generated
 
-			tokenCh, errCh := model.GenerateChannel(ctx, "Hello",
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Hello",
 				llama.WithMaxTokens(100))
 
 			tokenCount := 0
@@ -194,8 +201,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 		})
 
 		It("should close channels after cancellation", Label("integration", "channel"), func() {
-			ctx, cancel := context.WithCancel(context.Background())
-			tokenCh, errCh := model.GenerateChannel(ctx, "Test prompt",
+			bgCtx, cancel := context.WithCancel(context.Background())
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test prompt",
 				llama.WithMaxTokens(100))
 
 			// Wait for a few tokens then cancel
@@ -243,10 +250,10 @@ var _ = Describe("Model.GenerateChannel", func() {
 	Context("context timeout", func() {
 		It("should respect context timeout", Label("integration", "channel", "slow"), func() {
 			// Use a longer timeout that allows some tokens but stops before max
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctxTimeout, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			tokenCh, errCh := model.GenerateChannel(ctx, "Write a detailed story about dragons",
+			tokenCh, errCh := ctx.GenerateChannel(ctxTimeout, "Write a detailed story about dragons",
 				llama.WithMaxTokens(10000)) // Request many tokens
 
 			var tokens []string
@@ -261,7 +268,7 @@ var _ = Describe("Model.GenerateChannel", func() {
 					tokens = append(tokens, token)
 				case <-errCh:
 					// Ignore errors
-				case <-ctx.Done():
+				case <-ctxTimeout.Done():
 					break Loop
 				}
 			}
@@ -273,10 +280,10 @@ var _ = Describe("Model.GenerateChannel", func() {
 		})
 
 		It("should handle very short timeout", Label("integration", "channel"), func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			ctxTimeout, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 
-			tokenCh, errCh := model.GenerateChannel(ctx, "Test",
+			tokenCh, errCh := ctx.GenerateChannel(ctxTimeout, "Test",
 				llama.WithMaxTokens(1000))
 
 			tokenCount := 0
@@ -306,8 +313,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 		It("should return error when model is closed", Label("integration", "channel"), func() {
 			model.Close()
 
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Test",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
 				llama.WithMaxTokens(10))
 
 			var receivedErr error
@@ -337,8 +344,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 		It("should not deliver tokens after error", Label("integration", "channel"), func() {
 			model.Close()
 
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Test",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
 				llama.WithMaxTokens(10))
 
 			var tokenCount int
@@ -373,8 +380,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 
 	Context("channel lifecycle", func() {
 		It("should close token channel when complete", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, _ := model.GenerateChannel(ctx, "Hello",
+			bgCtx := context.Background()
+			tokenCh, _ := ctx.GenerateChannel(bgCtx, "Hello",
 				llama.WithMaxTokens(10))
 
 			// Drain channel until it closes
@@ -392,8 +399,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 		})
 
 		It("should close error channel when complete", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Hello",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Hello",
 				llama.WithMaxTokens(10))
 
 			// Drain token channel
@@ -427,8 +434,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 		It("should close both channels even on error", Label("integration", "channel"), func() {
 			model.Close() // Force error
 
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Test",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
 				llama.WithMaxTokens(10))
 
 			// Drain both channels
@@ -466,8 +473,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 
 	Context("with stop words", func() {
 		It("should stop at stop word", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "The sky is blue.",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "The sky is blue.",
 				llama.WithMaxTokens(50),
 				llama.WithStopWords("."))
 
@@ -493,8 +500,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 		})
 
 		It("should not include stop word in output", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Count: one two three",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Count: one two three",
 				llama.WithMaxTokens(50),
 				llama.WithStopWords("three"))
 
@@ -519,8 +526,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 		})
 
 		It("should handle multiple stop words", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Hello world",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Hello world",
 				llama.WithMaxTokens(50),
 				llama.WithStopWords(".", "!", "?"))
 
@@ -548,8 +555,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 	Context("with sampling options", func() {
 		It("should respect WithMaxTokens", Label("integration", "channel"), func() {
 			const maxTokens = 5
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Write a long story",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Write a long story",
 				llama.WithMaxTokens(maxTokens))
 
 			tokenCount := 0
@@ -573,8 +580,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 		})
 
 		It("should apply temperature parameter", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "The capital of France is",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "The capital of France is",
 				llama.WithMaxTokens(20),
 				llama.WithTemperature(0.5))
 
@@ -606,8 +613,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 
 			for i := 0; i < numStreams; i++ {
 				go func(streamID int) {
-					ctx := context.Background()
-					tokenCh, errCh := model.GenerateChannel(ctx, "Hello",
+					bgCtx := context.Background()
+					tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Hello",
 						llama.WithMaxTokens(10))
 
 					var result strings.Builder
@@ -651,8 +658,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 
 			for i := 0; i < numStreams; i++ {
 				go func() {
-					ctx := context.Background()
-					tokenCh, errCh := model.GenerateChannel(ctx, "Test",
+					bgCtx := context.Background()
+					tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
 						llama.WithMaxTokens(5))
 
 					tokenCount := 0
@@ -689,7 +696,9 @@ var _ = Describe("Model.GenerateChannel", func() {
 var _ = Describe("Model.GenerateWithDraftChannel", func() {
 	var (
 		targetModel *llama.Model
+		targetCtx   *llama.Context
 		draftModel  *llama.Model
+		draftCtx    *llama.Context
 		modelPath   string
 		testPrompt  = "The capital of France is"
 	)
@@ -701,13 +710,19 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 		}
 
 		var err error
-		targetModel, err = llama.LoadModel(modelPath,
+		targetModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+		Expect(err).NotTo(HaveOccurred())
+
+		targetCtx, err = targetModel.NewContext(
 			llama.WithContext(2048),
 			llama.WithThreads(4),
 		)
 		Expect(err).NotTo(HaveOccurred())
 
-		draftModel, err = llama.LoadModel(modelPath,
+		draftModel, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+		Expect(err).NotTo(HaveOccurred())
+
+		draftCtx, err = draftModel.NewContext(
 			llama.WithContext(2048),
 			llama.WithThreads(4),
 		)
@@ -715,8 +730,14 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 	})
 
 	AfterEach(func() {
+		if draftCtx != nil {
+			draftCtx.Close()
+		}
 		if draftModel != nil {
 			draftModel.Close()
+		}
+		if targetCtx != nil {
+			targetCtx.Close()
 		}
 		if targetModel != nil {
 			targetModel.Close()
@@ -725,8 +746,8 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 
 	Context("basic draft model streaming", func() {
 		It("should stream tokens with draft model", Label("integration", "channel", "speculative"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := targetModel.GenerateWithDraftChannel(ctx, testPrompt, draftModel,
+			bgCtx := context.Background()
+			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, testPrompt, draftCtx,
 				llama.WithMaxTokens(30))
 
 			var result strings.Builder
@@ -750,8 +771,8 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 		})
 
 		It("should deliver verified tokens", Label("integration", "channel", "speculative"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := targetModel.GenerateWithDraftChannel(ctx, testPrompt, draftModel,
+			bgCtx := context.Background()
+			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithDraftTokens(16))
 
@@ -776,8 +797,8 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 		})
 
 		It("should produce coherent output with speculative decoding", Label("integration", "channel", "speculative"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := targetModel.GenerateWithDraftChannel(ctx, "Once upon a time", draftModel,
+			bgCtx := context.Background()
+			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, "Once upon a time", draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithDraftTokens(8))
 
@@ -804,9 +825,9 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 
 	Context("with context cancellation", func() {
 		It("should stop draft generation on cancellation", Label("integration", "channel", "speculative"), func() {
-			ctx, cancel := context.WithCancel(context.Background())
+			bgCtx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			tokenCh, errCh := targetModel.GenerateWithDraftChannel(ctx, "Write a long story", draftModel,
+			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, "Write a long story", draftCtx,
 				llama.WithMaxTokens(1000),
 				llama.WithDraftTokens(16))
 
@@ -837,8 +858,8 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 
 	Context("with draft token configuration", func() {
 		It("should work with draft_tokens=8", Label("integration", "channel", "speculative"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := targetModel.GenerateWithDraftChannel(ctx, testPrompt, draftModel,
+			bgCtx := context.Background()
+			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, testPrompt, draftCtx,
 				llama.WithMaxTokens(30),
 				llama.WithDraftTokens(8))
 
@@ -863,8 +884,8 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 		})
 
 		It("should work with draft_tokens=32", Label("integration", "channel", "speculative"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := targetModel.GenerateWithDraftChannel(ctx, testPrompt, draftModel,
+			bgCtx := context.Background()
+			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, testPrompt, draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithDraftTokens(32))
 
@@ -891,8 +912,8 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 
 	Context("with stop words", func() {
 		It("should respect stop words in draft streaming", Label("integration", "channel", "speculative"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := targetModel.GenerateWithDraftChannel(ctx, "The sky is blue.", draftModel,
+			bgCtx := context.Background()
+			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, "The sky is blue.", draftCtx,
 				llama.WithMaxTokens(50),
 				llama.WithStopWords("."))
 
@@ -921,8 +942,8 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 		It("should return error when draft model is closed", Label("integration", "channel", "speculative"), func() {
 			draftModel.Close()
 
-			ctx := context.Background()
-			tokenCh, errCh := targetModel.GenerateWithDraftChannel(ctx, testPrompt, draftModel,
+			bgCtx := context.Background()
+			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, testPrompt, draftCtx,
 				llama.WithMaxTokens(30))
 
 			var receivedErr error
@@ -952,8 +973,8 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 		It("should return error when target model is closed", Label("integration", "channel", "speculative"), func() {
 			targetModel.Close()
 
-			ctx := context.Background()
-			tokenCh, errCh := targetModel.GenerateWithDraftChannel(ctx, testPrompt, draftModel,
+			bgCtx := context.Background()
+			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, testPrompt, draftCtx,
 				llama.WithMaxTokens(30))
 
 			var receivedErr error
@@ -983,8 +1004,8 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 
 	Context("with sampling parameters", func() {
 		It("should apply temperature to draft streaming", Label("integration", "channel", "speculative"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := targetModel.GenerateWithDraftChannel(ctx, testPrompt, draftModel,
+			bgCtx := context.Background()
+			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, testPrompt, draftCtx,
 				llama.WithMaxTokens(30),
 				llama.WithTemperature(0.7))
 
@@ -1014,6 +1035,7 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 var _ = Describe("Channel Streaming Edge Cases", func() {
 	var (
 		model     *llama.Model
+		ctx       *llama.Context
 		modelPath string
 	)
 
@@ -1024,7 +1046,10 @@ var _ = Describe("Channel Streaming Edge Cases", func() {
 		}
 
 		var err error
-		model, err = llama.LoadModel(modelPath,
+		model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+		Expect(err).NotTo(HaveOccurred())
+
+		ctx, err = model.NewContext(
 			llama.WithContext(2048),
 			llama.WithThreads(4),
 		)
@@ -1032,6 +1057,9 @@ var _ = Describe("Channel Streaming Edge Cases", func() {
 	})
 
 	AfterEach(func() {
+		if ctx != nil {
+			ctx.Close()
+		}
 		if model != nil {
 			model.Close()
 		}
@@ -1039,8 +1067,8 @@ var _ = Describe("Channel Streaming Edge Cases", func() {
 
 	Context("context handling", func() {
 		It("should handle context.Background()", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Test",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
 				llama.WithMaxTokens(10))
 
 			var result strings.Builder
@@ -1060,10 +1088,10 @@ var _ = Describe("Channel Streaming Edge Cases", func() {
 		})
 
 		It("should handle already-cancelled context", Label("integration", "channel"), func() {
-			ctx, cancel := context.WithCancel(context.Background())
+			bgCtx, cancel := context.WithCancel(context.Background())
 			cancel()
 
-			tokenCh, _ := model.GenerateChannel(ctx, "Test",
+			tokenCh, _ := ctx.GenerateChannel(bgCtx, "Test",
 				llama.WithMaxTokens(100))
 
 			tokenCount := 0
@@ -1089,8 +1117,8 @@ var _ = Describe("Channel Streaming Edge Cases", func() {
 
 	Context("channel reading patterns", func() {
 		It("should handle reading only from token channel", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, _ := model.GenerateChannel(ctx, "Hello",
+			bgCtx := context.Background()
+			tokenCh, _ := ctx.GenerateChannel(bgCtx, "Hello",
 				llama.WithMaxTokens(10))
 
 			var result strings.Builder
@@ -1102,8 +1130,8 @@ var _ = Describe("Channel Streaming Edge Cases", func() {
 		})
 
 		It("should handle slow consumer", Label("integration", "channel", "slow"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Test",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
 				llama.WithMaxTokens(20))
 
 			var result strings.Builder
@@ -1129,8 +1157,8 @@ var _ = Describe("Channel Streaming Edge Cases", func() {
 		})
 
 		It("should handle fast consumer", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Test",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
 				llama.WithMaxTokens(50))
 
 			tokenCount := 0
@@ -1157,8 +1185,8 @@ var _ = Describe("Channel Streaming Edge Cases", func() {
 
 	Context("empty and edge case prompts", func() {
 		It("should handle very short prompt", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Hi",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Hi",
 				llama.WithMaxTokens(10))
 
 			var result strings.Builder
@@ -1182,8 +1210,8 @@ var _ = Describe("Channel Streaming Edge Cases", func() {
 		})
 
 		It("should generate minimal tokens with max_tokens=1", Label("integration", "channel"), func() {
-			ctx := context.Background()
-			tokenCh, errCh := model.GenerateChannel(ctx, "Test",
+			bgCtx := context.Background()
+			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
 				llama.WithMaxTokens(1))
 
 			tokenCount := 0

@@ -26,6 +26,7 @@ import (
 var _ = Describe("Model.Generate", func() {
 	Context("with valid prompt and model", func() {
 		var model *llama.Model
+		var ctx *llama.Context
 		var modelPath string
 
 		BeforeEach(func() {
@@ -34,22 +35,29 @@ var _ = Describe("Model.Generate", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 			var err error
-			model, err = llama.LoadModel(modelPath,
+			model, err = llama.LoadModel(modelPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(model).NotTo(BeNil())
+
+			ctx, err = model.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(model).NotTo(BeNil())
+			Expect(ctx).NotTo(BeNil())
 		})
 
 		AfterEach(func() {
+			if ctx != nil {
+				ctx.Close()
+			}
 			if model != nil {
 				model.Close()
 			}
 		})
 
 		It("should generate text successfully", Label("integration"), func() {
-			response, err := model.Generate("The capital of France is",
+			response, err := ctx.Generate("The capital of France is",
 				llama.WithMaxTokens(10),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -57,7 +65,7 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should return non-empty response", Label("integration"), func() {
-			response, err := model.Generate("Hello",
+			response, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(5),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -65,7 +73,7 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should respect WithMaxTokens limit", Label("integration"), func() {
-			response, err := model.Generate("Count to 100:",
+			response, err := ctx.Generate("Count to 100:",
 				llama.WithMaxTokens(5),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -75,7 +83,7 @@ var _ = Describe("Model.Generate", func() {
 
 		It("should follow decode-before-sample pattern", Label("integration"), func() {
 			// Test that generation completes without hanging (previous bug)
-			response, err := model.Generate("The quick brown fox",
+			response, err := ctx.Generate("The quick brown fox",
 				llama.WithMaxTokens(20),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -83,7 +91,7 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should complete generation without errors", Label("integration"), func() {
-			response, err := model.Generate("Testing generation",
+			response, err := ctx.Generate("Testing generation",
 				llama.WithMaxTokens(10),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -93,6 +101,7 @@ var _ = Describe("Model.Generate", func() {
 
 	Context("with sampling parameters", func() {
 		var model *llama.Model
+		var ctx *llama.Context
 		var modelPath string
 
 		BeforeEach(func() {
@@ -101,7 +110,10 @@ var _ = Describe("Model.Generate", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 			var err error
-			model, err = llama.LoadModel(modelPath,
+			model, err = llama.LoadModel(modelPath)
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx, err = model.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -109,13 +121,16 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		AfterEach(func() {
+			if ctx != nil {
+				ctx.Close()
+			}
 			if model != nil {
 				model.Close()
 			}
 		})
 
 		It("should apply WithTemperature option", Label("integration"), func() {
-			response, err := model.Generate("Hello",
+			response, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(10),
 				llama.WithTemperature(0.5),
 			)
@@ -124,7 +139,7 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should apply WithTopP option", Label("integration"), func() {
-			response, err := model.Generate("Hello",
+			response, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(10),
 				llama.WithTopP(0.9),
 			)
@@ -133,7 +148,7 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should apply WithTopK option", Label("integration"), func() {
-			response, err := model.Generate("Hello",
+			response, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(10),
 				llama.WithTopK(20),
 			)
@@ -143,14 +158,14 @@ var _ = Describe("Model.Generate", func() {
 
 		It("should generate deterministically with WithSeed", Label("integration"), func() {
 			// Same seed should produce identical output
-			response1, err := model.Generate("The capital of France is",
+			response1, err := ctx.Generate("The capital of France is",
 				llama.WithMaxTokens(10),
 				llama.WithSeed(12345),
 				llama.WithTemperature(0.8),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			response2, err := model.Generate("The capital of France is",
+			response2, err := ctx.Generate("The capital of France is",
 				llama.WithMaxTokens(10),
 				llama.WithSeed(12345),
 				llama.WithTemperature(0.8),
@@ -161,14 +176,14 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should generate different outputs with different seeds", Label("integration"), func() {
-			response1, err := model.Generate("The capital of France is",
+			response1, err := ctx.Generate("The capital of France is",
 				llama.WithMaxTokens(10),
 				llama.WithSeed(12345),
 				llama.WithTemperature(0.8),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			response2, err := model.Generate("The capital of France is",
+			response2, err := ctx.Generate("The capital of France is",
 				llama.WithMaxTokens(10),
 				llama.WithSeed(54321),
 				llama.WithTemperature(0.8),
@@ -180,14 +195,14 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should generate different outputs with WithSeed(-1) on repeated calls", Label("integration"), func() {
-			response1, err := model.Generate("The capital of France is",
+			response1, err := ctx.Generate("The capital of France is",
 				llama.WithMaxTokens(10),
 				llama.WithSeed(-1),
 				llama.WithTemperature(0.8),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			response2, err := model.Generate("The capital of France is",
+			response2, err := ctx.Generate("The capital of France is",
 				llama.WithMaxTokens(10),
 				llama.WithSeed(-1),
 				llama.WithTemperature(0.8),
@@ -201,6 +216,7 @@ var _ = Describe("Model.Generate", func() {
 
 	Context("with max_tokens validation", func() {
 		var model *llama.Model
+		var ctx *llama.Context
 		var modelPath string
 
 		BeforeEach(func() {
@@ -209,7 +225,10 @@ var _ = Describe("Model.Generate", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 			var err error
-			model, err = llama.LoadModel(modelPath,
+			model, err = llama.LoadModel(modelPath)
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx, err = model.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -217,13 +236,16 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		AfterEach(func() {
+			if ctx != nil {
+				ctx.Close()
+			}
 			if model != nil {
 				model.Close()
 			}
 		})
 
 		It("should accept max_tokens=1 (minimum valid)", Label("integration"), func() {
-			response, err := model.Generate("Hello",
+			response, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(1),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -232,7 +254,7 @@ var _ = Describe("Model.Generate", func() {
 
 		It("should accept large max_tokens values", Label("integration"), func() {
 			// Context is 40960, so this should work fine
-			response, err := model.Generate("Hello",
+			response, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(1000),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -240,7 +262,7 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should use default when max_tokens=0", Label("integration"), func() {
-			result, err := model.Generate("Hello",
+			result, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(0),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -248,7 +270,7 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should return error for max_tokens=-1", Label("integration"), func() {
-			_, err := model.Generate("Hello",
+			_, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(-1),
 			)
 			Expect(err).To(HaveOccurred())
@@ -259,6 +281,7 @@ var _ = Describe("Model.Generate", func() {
 
 	Context("with stop words", func() {
 		var model *llama.Model
+		var ctx *llama.Context
 		var modelPath string
 
 		BeforeEach(func() {
@@ -267,7 +290,10 @@ var _ = Describe("Model.Generate", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 			var err error
-			model, err = llama.LoadModel(modelPath,
+			model, err = llama.LoadModel(modelPath)
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx, err = model.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -275,13 +301,16 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		AfterEach(func() {
+			if ctx != nil {
+				ctx.Close()
+			}
 			if model != nil {
 				model.Close()
 			}
 		})
 
 		It("should stop generation when stop word found", Label("integration"), func() {
-			response, err := model.Generate("What is the capital city of France?",
+			response, err := ctx.Generate("What is the capital city of France?",
 				llama.WithMaxTokens(100),
 				llama.WithStopWords("Paris"),
 			)
@@ -292,7 +321,7 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should respect multiple stop words", Label("integration"), func() {
-			response, err := model.Generate("Tell me a story",
+			response, err := ctx.Generate("Tell me a story",
 				llama.WithMaxTokens(100),
 				llama.WithStopWords(".", "!", "?"),
 			)
@@ -302,7 +331,7 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should return partial output when stopped", Label("integration"), func() {
-			response, err := model.Generate("The quick brown fox",
+			response, err := ctx.Generate("The quick brown fox",
 				llama.WithMaxTokens(50),
 				llama.WithStopWords("fox"),
 			)
@@ -312,7 +341,7 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should handle stop words not present in output", Label("integration"), func() {
-			response, err := model.Generate("Hello world",
+			response, err := ctx.Generate("Hello world",
 				llama.WithMaxTokens(10),
 				llama.WithStopWords("ZZZZZ"), // Unlikely stop word
 			)
@@ -322,7 +351,7 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should handle stop word at start of generation", Label("integration"), func() {
-			response, err := model.Generate("Hello",
+			response, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(50),
 				llama.WithStopWords("Hello"),
 			)
@@ -332,7 +361,7 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should handle stop word in middle of generation", Label("integration"), func() {
-			response, err := model.Generate("Count to 10",
+			response, err := ctx.Generate("Count to 10",
 				llama.WithMaxTokens(100),
 				llama.WithStopWords("5"),
 			)
@@ -343,6 +372,7 @@ var _ = Describe("Model.Generate", func() {
 
 	Context("with empty or invalid prompts", func() {
 		var model *llama.Model
+		var ctx *llama.Context
 		var modelPath string
 
 		BeforeEach(func() {
@@ -351,7 +381,10 @@ var _ = Describe("Model.Generate", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 			var err error
-			model, err = llama.LoadModel(modelPath,
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx, err = model.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -359,13 +392,16 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		AfterEach(func() {
+			if ctx != nil {
+				ctx.Close()
+			}
 			if model != nil {
 				model.Close()
 			}
 		})
 
 		It("should handle empty string prompt", Label("integration"), func() {
-			_, err := model.Generate("",
+			_, err := ctx.Generate("",
 				llama.WithMaxTokens(10),
 			)
 			// May succeed with BOS token or fail - check behaviour
@@ -376,7 +412,7 @@ var _ = Describe("Model.Generate", func() {
 
 		It("should return error containing \"Failed to tokenize prompt\"", Label("integration"), func() {
 			// Empty prompt may cause tokenisation failure
-			_, err := model.Generate("",
+			_, err := ctx.Generate("",
 				llama.WithMaxTokens(10),
 			)
 			if err != nil {
@@ -387,6 +423,7 @@ var _ = Describe("Model.Generate", func() {
 
 	Context("with prompt length validation", func() {
 		var model *llama.Model
+		var ctx *llama.Context
 		var modelPath string
 
 		BeforeEach(func() {
@@ -396,7 +433,10 @@ var _ = Describe("Model.Generate", func() {
 			}
 			var err error
 			// Use small context for easier testing
-			model, err = llama.LoadModel(modelPath,
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx, err = model.NewContext(
 				llama.WithContext(128),
 				llama.WithThreads(4),
 			)
@@ -404,13 +444,16 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		AfterEach(func() {
+			if ctx != nil {
+				ctx.Close()
+			}
 			if model != nil {
 				model.Close()
 			}
 		})
 
 		It("should accept prompt under context limit", Label("integration"), func() {
-			response, err := model.Generate("Short prompt",
+			response, err := ctx.Generate("Short prompt",
 				llama.WithMaxTokens(10),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -420,7 +463,7 @@ var _ = Describe("Model.Generate", func() {
 		It("should return error when prompt fills entire context", Label("integration"), func() {
 			// Generate very long prompt (300+ tokens for context=128)
 			longPrompt := strings.Repeat("word ", 300)
-			_, err := model.Generate(longPrompt,
+			_, err := ctx.Generate(longPrompt,
 				llama.WithMaxTokens(10),
 			)
 			Expect(err).To(HaveOccurred())
@@ -429,7 +472,7 @@ var _ = Describe("Model.Generate", func() {
 		It("should error with \"Prompt too long for context size\"", Label("integration"), func() {
 			// Generate very long prompt (300+ tokens for context=128)
 			longPrompt := strings.Repeat("word ", 300)
-			_, err := model.Generate(longPrompt,
+			_, err := ctx.Generate(longPrompt,
 				llama.WithMaxTokens(10),
 			)
 			Expect(err).To(HaveOccurred())
@@ -440,7 +483,7 @@ var _ = Describe("Model.Generate", func() {
 			// Prompt that fills context-1 tokens should work
 			// Prompt that fills context tokens should fail
 			longPrompt := strings.Repeat("word ", 150)
-			_, err := model.Generate(longPrompt,
+			_, err := ctx.Generate(longPrompt,
 				llama.WithMaxTokens(10),
 			)
 			if err != nil {
@@ -449,8 +492,9 @@ var _ = Describe("Model.Generate", func() {
 		})
 	})
 
-	Context("when model is closed", func() {
+	Context("when context is closed", func() {
 		var model *llama.Model
+		var ctx *llama.Context
 		var modelPath string
 
 		BeforeEach(func() {
@@ -459,52 +503,13 @@ var _ = Describe("Model.Generate", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 			var err error
-			model, err = llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			// Close model before test
-			model.Close()
-		})
 
-		It("should return \"model is closed\" error", Label("integration"), func() {
-			_, err := model.Generate("Hello",
-				llama.WithMaxTokens(10),
-			)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("model is closed"))
-		})
-
-		It("should not crash or panic", Label("integration"), func() {
-			// Should fail gracefully without panic
-			_, err := model.Generate("Hello",
-				llama.WithMaxTokens(10),
-			)
-			Expect(err).To(HaveOccurred())
-		})
-
-		It("should fail immediately without attempting generation", Label("integration"), func() {
-			_, err := model.Generate("Hello",
-				llama.WithMaxTokens(10),
-			)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("model is closed"))
-		})
-	})
-
-	Context("with debug output", func() {
-		var model *llama.Model
-		var modelPath string
-
-		BeforeEach(func() {
-			modelPath = os.Getenv("TEST_CHAT_MODEL")
-			if modelPath == "" {
-				Skip("TEST_CHAT_MODEL not set - skipping integration test")
-			}
-			var err error
-			model, err = llama.LoadModel(modelPath,
-				llama.WithContext(2048),
-				llama.WithThreads(4),
-			)
+			ctx, err = model.NewContext(llama.WithContext(2048))
 			Expect(err).NotTo(HaveOccurred())
+			// Close context before test
+			ctx.Close()
 		})
 
 		AfterEach(func() {
@@ -513,9 +518,64 @@ var _ = Describe("Model.Generate", func() {
 			}
 		})
 
+		It("should return \"context is closed\" error", Label("integration"), func() {
+			_, err := ctx.Generate("Hello",
+				llama.WithMaxTokens(10),
+			)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(Equal("context is closed"))
+		})
+
+		It("should not crash or panic", Label("integration"), func() {
+			// Should fail gracefully without panic
+			_, err := ctx.Generate("Hello",
+				llama.WithMaxTokens(10),
+			)
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("should fail immediately without attempting generation", Label("integration"), func() {
+			_, err := ctx.Generate("Hello",
+				llama.WithMaxTokens(10),
+			)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(Equal("context is closed"))
+		})
+	})
+
+	Context("with debug output", func() {
+		var model *llama.Model
+		var ctx *llama.Context
+		var modelPath string
+
+		BeforeEach(func() {
+			modelPath = os.Getenv("TEST_CHAT_MODEL")
+			if modelPath == "" {
+				Skip("TEST_CHAT_MODEL not set - skipping integration test")
+			}
+			var err error
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx, err = model.NewContext(
+				llama.WithContext(2048),
+				llama.WithThreads(4),
+			)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		AfterEach(func() {
+			if ctx != nil {
+				ctx.Close()
+			}
+			if model != nil {
+				model.Close()
+			}
+		})
+
 		It("should enable debug mode with WithDebug()", Label("integration"), func() {
 			// Debug output goes to stderr - can't easily capture, but verify no errors
-			response, err := model.Generate("Hello",
+			response, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(5),
 				llama.WithDebug(),
 			)
@@ -525,7 +585,7 @@ var _ = Describe("Model.Generate", func() {
 
 		It("should output warnings to stderr", Label("integration"), func() {
 			// WithDebug enables stderr output - verify doesn't crash
-			_, _ = model.Generate("Test",
+			_, _ = ctx.Generate("Test",
 				llama.WithMaxTokens(10),
 				llama.WithDebug(),
 			)
@@ -535,6 +595,7 @@ var _ = Describe("Model.Generate", func() {
 
 	Context("when generation encounters errors", func() {
 		var model *llama.Model
+		var ctx *llama.Context
 		var modelPath string
 
 		BeforeEach(func() {
@@ -543,7 +604,10 @@ var _ = Describe("Model.Generate", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 			var err error
-			model, err = llama.LoadModel(modelPath,
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx, err = model.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -551,6 +615,9 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		AfterEach(func() {
+			if ctx != nil {
+				ctx.Close()
+			}
 			if model != nil {
 				model.Close()
 			}
@@ -558,7 +625,7 @@ var _ = Describe("Model.Generate", func() {
 
 		It("should return error with \"generation failed:\" prefix", Label("integration"), func() {
 			// Invalid max_tokens triggers generation error
-			_, err := model.Generate("Hello",
+			_, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(-1),
 			)
 			Expect(err).To(HaveOccurred())
@@ -567,7 +634,7 @@ var _ = Describe("Model.Generate", func() {
 
 		It("should handle decode failures gracefully", Label("integration"), func() {
 			// Normal generation shouldn't fail, but should handle gracefully if it does
-			_, err := model.Generate("Test",
+			_, err := ctx.Generate("Test",
 				llama.WithMaxTokens(10),
 			)
 			if err != nil {
@@ -577,7 +644,7 @@ var _ = Describe("Model.Generate", func() {
 
 		It("should handle sampler initialisation failures", Label("integration"), func() {
 			// Normal configuration should work
-			response, err := model.Generate("Test",
+			response, err := ctx.Generate("Test",
 				llama.WithMaxTokens(10),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -585,7 +652,7 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should return actionable error messages", Label("integration"), func() {
-			_, err := model.Generate("Hello",
+			_, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(10000),
 			)
 			Expect(err).To(HaveOccurred())
@@ -599,6 +666,7 @@ var _ = Describe("Model.Generate", func() {
 var _ = Describe("Generation Edge Cases", func() {
 	Context("with extreme sampling parameters", func() {
 		var model *llama.Model
+		var ctx *llama.Context
 		var modelPath string
 
 		BeforeEach(func() {
@@ -607,7 +675,10 @@ var _ = Describe("Generation Edge Cases", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 			var err error
-			model, err = llama.LoadModel(modelPath,
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx, err = model.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -615,13 +686,16 @@ var _ = Describe("Generation Edge Cases", func() {
 		})
 
 		AfterEach(func() {
+			if ctx != nil {
+				ctx.Close()
+			}
 			if model != nil {
 				model.Close()
 			}
 		})
 
 		It("should handle temperature=0.0", Label("integration"), func() {
-			response, err := model.Generate("The capital of France is",
+			response, err := ctx.Generate("The capital of France is",
 				llama.WithMaxTokens(10),
 				llama.WithTemperature(0.0),
 			)
@@ -630,7 +704,7 @@ var _ = Describe("Generation Edge Cases", func() {
 		})
 
 		It("should handle temperature=2.0", Label("integration"), func() {
-			response, err := model.Generate("Hello",
+			response, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(10),
 				llama.WithTemperature(2.0),
 			)
@@ -639,7 +713,7 @@ var _ = Describe("Generation Edge Cases", func() {
 		})
 
 		It("should handle top_p=1.0", Label("integration"), func() {
-			response, err := model.Generate("Hello",
+			response, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(10),
 				llama.WithTopP(1.0),
 			)
@@ -648,7 +722,7 @@ var _ = Describe("Generation Edge Cases", func() {
 		})
 
 		It("should handle top_k=1", Label("integration"), func() {
-			response, err := model.Generate("Hello",
+			response, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(10),
 				llama.WithTopK(1),
 			)
@@ -659,6 +733,7 @@ var _ = Describe("Generation Edge Cases", func() {
 
 	Context("with stop conditions", func() {
 		var model *llama.Model
+		var ctx *llama.Context
 		var modelPath string
 
 		BeforeEach(func() {
@@ -667,7 +742,10 @@ var _ = Describe("Generation Edge Cases", func() {
 				Skip("TEST_CHAT_MODEL not set - skipping integration test")
 			}
 			var err error
-			model, err = llama.LoadModel(modelPath,
+			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx, err = model.NewContext(
 				llama.WithContext(2048),
 				llama.WithThreads(4),
 			)
@@ -675,6 +753,9 @@ var _ = Describe("Generation Edge Cases", func() {
 		})
 
 		AfterEach(func() {
+			if ctx != nil {
+				ctx.Close()
+			}
 			if model != nil {
 				model.Close()
 			}
@@ -682,7 +763,7 @@ var _ = Describe("Generation Edge Cases", func() {
 
 		It("should stop on EOS token", Label("integration"), func() {
 			// EOS token stops generation naturally
-			response, err := model.Generate("Hello",
+			response, err := ctx.Generate("Hello",
 				llama.WithMaxTokens(100),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -690,7 +771,7 @@ var _ = Describe("Generation Edge Cases", func() {
 		})
 
 		It("should stop at max_tokens limit", Label("integration"), func() {
-			response, err := model.Generate("Count to 1000:",
+			response, err := ctx.Generate("Count to 1000:",
 				llama.WithMaxTokens(5),
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -699,7 +780,7 @@ var _ = Describe("Generation Edge Cases", func() {
 		})
 
 		It("should prioritise stop words over max_tokens", Label("integration"), func() {
-			response, err := model.Generate("The quick brown fox jumps",
+			response, err := ctx.Generate("The quick brown fox jumps",
 				llama.WithMaxTokens(100),
 				llama.WithStopWords("over"),
 			)

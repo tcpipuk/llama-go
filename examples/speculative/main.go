@@ -52,10 +52,7 @@ func main() {
 	// Load target model
 	fmt.Printf("Loading target model: %s\n", *targetModel)
 	target, err := llama.LoadModel(*targetModel,
-		llama.WithContext(*context),
 		llama.WithGPULayers(*gpuLayers),
-		llama.WithThreads(runtime.NumCPU()),
-		llama.WithF16Memory(),
 		llama.WithMMap(true),
 	)
 	if err != nil {
@@ -64,13 +61,22 @@ func main() {
 	}
 	defer target.Close()
 
+	// Create target context
+	targetCtx, err := target.NewContext(
+		llama.WithContext(*context),
+		llama.WithThreads(runtime.NumCPU()),
+		llama.WithF16Memory(),
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating target context: %v\n", err)
+		os.Exit(1)
+	}
+	defer targetCtx.Close()
+
 	// Load draft model
 	fmt.Printf("Loading draft model: %s\n", *draftModel)
 	draft, err := llama.LoadModel(*draftModel,
-		llama.WithContext(*context),
 		llama.WithGPULayers(*gpuLayers),
-		llama.WithThreads(runtime.NumCPU()),
-		llama.WithF16Memory(),
 		llama.WithMMap(true),
 	)
 	if err != nil {
@@ -78,6 +84,18 @@ func main() {
 		os.Exit(1)
 	}
 	defer draft.Close()
+
+	// Create draft context
+	draftCtx, err := draft.NewContext(
+		llama.WithContext(*context),
+		llama.WithThreads(runtime.NumCPU()),
+		llama.WithF16Memory(),
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating draft context: %v\n", err)
+		os.Exit(1)
+	}
+	defer draftCtx.Close()
 
 	fmt.Printf("Models loaded successfully.\n")
 	fmt.Printf("Prompt: %s\n", *prompt)
@@ -92,7 +110,7 @@ func main() {
 		opts = append(opts, llama.WithDebug())
 	}
 
-	response, err := target.GenerateWithDraft(*prompt, draft, opts...)
+	response, err := targetCtx.GenerateWithDraft(*prompt, draftCtx, opts...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating text: %v\n", err)
 		os.Exit(1)

@@ -61,12 +61,6 @@ func main() {
 	// Build model options
 	modelOpts := []llama.ModelOption{
 		llama.WithGPULayers(-1), // Use all available GPU layers
-		llama.WithThreads(runtime.NumCPU()),
-	}
-
-	// Add context size if specified (0 = use model's native maximum)
-	if *contextSize != 0 {
-		modelOpts = append(modelOpts, llama.WithContext(*contextSize))
 	}
 
 	model, err := llama.LoadModel(*modelPath, modelOpts...)
@@ -74,6 +68,22 @@ func main() {
 		log.Fatalf("Failed to load model: %v", err)
 	}
 	defer model.Close()
+
+	// Build context options
+	contextOpts := []llama.ContextOption{
+		llama.WithThreads(runtime.NumCPU()),
+	}
+
+	// Add context size if specified (0 = use model's native maximum)
+	if *contextSize != 0 {
+		contextOpts = append(contextOpts, llama.WithContext(*contextSize))
+	}
+
+	ctx, err := model.NewContext(contextOpts...)
+	if err != nil {
+		log.Fatalf("Failed to create context: %v", err)
+	}
+	defer ctx.Close()
 
 	// Display model statistics
 	stats, err := model.Stats()
@@ -85,14 +95,14 @@ func main() {
 
 	// Choose between single-message mode or interactive mode
 	if *message != "" {
-		runSingleMessage(model)
+		runSingleMessage(model, ctx)
 	} else {
-		runInteractive(model)
+		runInteractive(model, ctx)
 	}
 }
 
 // runSingleMessage handles single message completion.
-func runSingleMessage(model *llama.Model) {
+func runSingleMessage(model *llama.Model, ctx *llama.Context) {
 	messages := []llama.ChatMessage{
 		{Role: "system", Content: *system},
 		{Role: "user", Content: *message},
@@ -101,7 +111,7 @@ func runSingleMessage(model *llama.Model) {
 	exampleui.DisplaySystemPrompt(*system)
 	fmt.Printf("\nUser: %s\n", *message)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*timeout)*time.Second)
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), time.Duration(*timeout)*time.Second)
 	defer cancel()
 
 	opts := llama.ChatOptions{
@@ -116,7 +126,7 @@ func runSingleMessage(model *llama.Model) {
 		opts.ReasoningFormat = llama.ReasoningFormatAuto
 	}
 
-	response, err := model.Chat(ctx, messages, opts)
+	response, err := ctx.Chat(ctxTimeout, messages, opts)
 	if err != nil {
 		log.Fatalf("Chat completion failed: %v", err)
 	}
@@ -129,7 +139,7 @@ func runSingleMessage(model *llama.Model) {
 }
 
 // runInteractive handles interactive chat loop.
-func runInteractive(model *llama.Model) {
+func runInteractive(model *llama.Model, ctx *llama.Context) {
 	fmt.Println("=== Interactive Chat Mode ===")
 	exampleui.DisplaySystemPrompt(*system)
 	fmt.Printf("Parameters: max_tokens=%d, temperature=%.2f, top_p=%.2f, top_k=%d\n",
@@ -162,7 +172,7 @@ func runInteractive(model *llama.Model) {
 			Content: userInput,
 		})
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*timeout)*time.Second)
+		ctxTimeout, cancel := context.WithTimeout(context.Background(), time.Duration(*timeout)*time.Second)
 		defer cancel()
 
 		opts := llama.ChatOptions{
@@ -184,7 +194,7 @@ func runInteractive(model *llama.Model) {
 		}
 
 		// Get assistant response
-		response, err := model.Chat(ctx, messages, opts)
+		response, err := ctx.Chat(ctxTimeout, messages, opts)
 		if err != nil {
 			log.Printf("Chat completion failed: %v\n", err)
 			continue

@@ -12,9 +12,10 @@ import (
 // Streaming test suite for GenerateStream functionality.
 // Tests callback behaviour, early termination, stop words, and streaming-specific edge cases.
 
-var _ = Describe("Model.GenerateStream", func() {
+var _ = Describe("Context.GenerateStream", func() {
 	var (
 		model     *llama.Model
+		ctx       *llama.Context
 		modelPath string
 	)
 
@@ -25,15 +26,21 @@ var _ = Describe("Model.GenerateStream", func() {
 		}
 
 		var err error
-		model, err = llama.LoadModel(modelPath,
+		model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(model).NotTo(BeNil())
+
+		ctx, err = model.NewContext(
 			llama.WithContext(2048),
 			llama.WithThreads(4),
 		)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(model).NotTo(BeNil())
 	})
 
 	AfterEach(func() {
+		if ctx != nil {
+			ctx.Close()
+		}
 		if model != nil {
 			model.Close()
 		}
@@ -47,7 +54,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return true
 			}
 
-			err := model.GenerateStream("The capital of France is",
+			err := ctx.GenerateStream("The capital of France is",
 				callback,
 				llama.WithMaxTokens(10),
 				llama.WithTemperature(0.7),
@@ -63,7 +70,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return true
 			}
 
-			err := model.GenerateStream("Hello",
+			err := ctx.GenerateStream("Hello",
 				callback,
 				llama.WithMaxTokens(5),
 			)
@@ -82,7 +89,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return true
 			}
 
-			err := model.GenerateStream("The sky is",
+			err := ctx.GenerateStream("The sky is",
 				callback,
 				llama.WithMaxTokens(20),
 			)
@@ -97,7 +104,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return true
 			}
 
-			err := model.GenerateStream("2+2=",
+			err := ctx.GenerateStream("2+2=",
 				callback,
 				llama.WithMaxTokens(10),
 				llama.WithSeed(42),
@@ -120,7 +127,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return true
 			}
 
-			err := model.GenerateStream("Test",
+			err := ctx.GenerateStream("Test",
 				callback,
 				llama.WithMaxTokens(5),
 			)
@@ -137,7 +144,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return false
 			}
 
-			err := model.GenerateStream("Tell me a story",
+			err := ctx.GenerateStream("Tell me a story",
 				callback,
 				llama.WithMaxTokens(100),
 			)
@@ -150,7 +157,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return false
 			}
 
-			err := model.GenerateStream("The",
+			err := ctx.GenerateStream("The",
 				callback,
 				llama.WithMaxTokens(50),
 			)
@@ -164,7 +171,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return false
 			}
 
-			err := model.GenerateStream("Hello",
+			err := ctx.GenerateStream("Hello",
 				callback,
 				llama.WithMaxTokens(50),
 			)
@@ -179,7 +186,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return false
 			}
 
-			err := model.GenerateStream("Test",
+			err := ctx.GenerateStream("Test",
 				callback,
 				llama.WithMaxTokens(50),
 				llama.WithDebug(),
@@ -196,7 +203,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return false
 			}
 
-			err := model.GenerateStream("Write a long story",
+			err := ctx.GenerateStream("Write a long story",
 				callback,
 				llama.WithMaxTokens(1000),
 			)
@@ -210,7 +217,7 @@ var _ = Describe("Model.GenerateStream", func() {
 			}
 
 			Expect(func() {
-				_ = model.GenerateStream("Test", callback, llama.WithMaxTokens(50))
+				_ = ctx.GenerateStream("Test", callback, llama.WithMaxTokens(50))
 			}).NotTo(Panic())
 		})
 
@@ -219,7 +226,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return false
 			}
 
-			err := model.GenerateStream("Quick test",
+			err := ctx.GenerateStream("Quick test",
 				callback,
 				llama.WithMaxTokens(100),
 			)
@@ -236,7 +243,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return count < stopAfter
 			}
 
-			err := model.GenerateStream("Tell me a long story about dragons",
+			err := ctx.GenerateStream("Tell me a long story about dragons",
 				callback,
 				llama.WithMaxTokens(100),
 			)
@@ -251,7 +258,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return len(tokens) < 3
 			}
 
-			err := model.GenerateStream("Count to ten",
+			err := ctx.GenerateStream("Count to ten",
 				callback,
 				llama.WithMaxTokens(50),
 			)
@@ -267,7 +274,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return count < stopAt
 			}
 
-			err := model.GenerateStream("Generate text",
+			err := ctx.GenerateStream("Generate text",
 				callback,
 				llama.WithMaxTokens(100),
 			)
@@ -284,7 +291,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return true
 			}
 
-			err := model.GenerateStream("The sky is blue.",
+			err := ctx.GenerateStream("The sky is blue.",
 				callback,
 				llama.WithMaxTokens(50),
 				llama.WithStopWords("."),
@@ -300,7 +307,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return true
 			}
 
-			err := model.GenerateStream("Hello world.",
+			err := ctx.GenerateStream("Hello world.",
 				callback,
 				llama.WithMaxTokens(50),
 				llama.WithStopWords("world"),
@@ -316,7 +323,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return true
 			}
 
-			err := model.GenerateStream("One two three four five",
+			err := ctx.GenerateStream("One two three four five",
 				callback,
 				llama.WithMaxTokens(50),
 				llama.WithStopWords("three"),
@@ -331,7 +338,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return true
 			}
 
-			err := model.GenerateStream("Test sentence.",
+			err := ctx.GenerateStream("Test sentence.",
 				callback,
 				llama.WithMaxTokens(50),
 				llama.WithStopWords("."),
@@ -349,7 +356,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return count < 3
 			}
 
-			err := model.GenerateStream("This is a test sentence.",
+			err := ctx.GenerateStream("This is a test sentence.",
 				callback,
 				llama.WithMaxTokens(50),
 				llama.WithStopWords("."),
@@ -366,7 +373,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return !strings.Contains(output, "STOP")
 			}
 
-			err := model.GenerateStream("Continue until STOP appears",
+			err := ctx.GenerateStream("Continue until STOP appears",
 				callback,
 				llama.WithMaxTokens(100),
 				llama.WithStopWords("STOP"),
@@ -383,7 +390,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return count < 100 // Very high limit
 			}
 
-			err := model.GenerateStream("Short text.",
+			err := ctx.GenerateStream("Short text.",
 				callback,
 				llama.WithMaxTokens(5),
 				llama.WithStopWords("."),
@@ -394,24 +401,24 @@ var _ = Describe("Model.GenerateStream", func() {
 		})
 	})
 
-	Context("when model is closed", func() {
-		It("should return 'model is closed' error", Label("integration"), func() {
-			model.Close()
+	Context("when context is closed", func() {
+		It("should return 'context is closed' error", Label("integration"), func() {
+			ctx.Close()
 
 			callback := func(token string) bool {
 				return true
 			}
 
-			err := model.GenerateStream("Test",
+			err := ctx.GenerateStream("Test",
 				callback,
 				llama.WithMaxTokens(10),
 			)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("model is closed"))
+			Expect(err.Error()).To(Equal("context is closed"))
 		})
 
-		It("should not call callback when model closed", Label("integration"), func() {
-			model.Close()
+		It("should not call callback when context closed", Label("integration"), func() {
+			ctx.Close()
 
 			callbackCalled := false
 			callback := func(token string) bool {
@@ -419,12 +426,12 @@ var _ = Describe("Model.GenerateStream", func() {
 				return true
 			}
 
-			err := model.GenerateStream("Test",
+			err := ctx.GenerateStream("Test",
 				callback,
 				llama.WithMaxTokens(10),
 			)
 			Expect(err).To(HaveOccurred())
-			Expect(callbackCalled).To(BeFalse(), "callback should not be invoked on closed model")
+			Expect(callbackCalled).To(BeFalse(), "callback should not be invoked on closed context")
 		})
 	})
 
@@ -437,7 +444,7 @@ var _ = Describe("Model.GenerateStream", func() {
 				return true
 			}
 
-			err := model.GenerateStream("Write a long story",
+			err := ctx.GenerateStream("Write a long story",
 				callback,
 				llama.WithMaxTokens(maxTokens),
 			)
@@ -459,7 +466,7 @@ var _ = Describe("Model.GenerateStream", func() {
 			prompt := "The capital of France is"
 
 			// Generate with different temperatures
-			err := model.GenerateStream(prompt,
+			err := ctx.GenerateStream(prompt,
 				callback1,
 				llama.WithMaxTokens(10),
 				llama.WithTemperature(0.0), // Very deterministic
@@ -467,7 +474,7 @@ var _ = Describe("Model.GenerateStream", func() {
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			err = model.GenerateStream(prompt,
+			err = ctx.GenerateStream(prompt,
 				callback2,
 				llama.WithMaxTokens(10),
 				llama.WithTemperature(2.0), // Very random
@@ -486,6 +493,7 @@ var _ = Describe("Model.GenerateStream", func() {
 var _ = Describe("Streaming Callback Behaviour", func() {
 	var (
 		model     *llama.Model
+		ctx       *llama.Context
 		modelPath string
 	)
 
@@ -496,7 +504,10 @@ var _ = Describe("Streaming Callback Behaviour", func() {
 		}
 
 		var err error
-		model, err = llama.LoadModel(modelPath,
+		model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+		Expect(err).NotTo(HaveOccurred())
+
+		ctx, err = model.NewContext(
 			llama.WithContext(2048),
 			llama.WithThreads(4),
 		)
@@ -504,6 +515,9 @@ var _ = Describe("Streaming Callback Behaviour", func() {
 	})
 
 	AfterEach(func() {
+		if ctx != nil {
+			ctx.Close()
+		}
 		if model != nil {
 			model.Close()
 		}
@@ -517,7 +531,7 @@ var _ = Describe("Streaming Callback Behaviour", func() {
 				return true
 			}
 
-			err := model.GenerateStream("Count: one two three",
+			err := ctx.GenerateStream("Count: one two three",
 				callback,
 				llama.WithMaxTokens(15),
 			)
@@ -533,7 +547,7 @@ var _ = Describe("Streaming Callback Behaviour", func() {
 				return true
 			}
 
-			err := model.GenerateStream("Internationalization",
+			err := ctx.GenerateStream("Internationalization",
 				callback,
 				llama.WithMaxTokens(10),
 			)
@@ -551,7 +565,7 @@ var _ = Describe("Streaming Callback Behaviour", func() {
 				return true
 			}
 
-			err := model.GenerateStream("Generate some text",
+			err := ctx.GenerateStream("Generate some text",
 				callback,
 				llama.WithMaxTokens(10),
 			)
@@ -568,7 +582,7 @@ var _ = Describe("Streaming Callback Behaviour", func() {
 				return len(accumulated) < 50
 			}
 
-			err := model.GenerateStream("Write a paragraph",
+			err := ctx.GenerateStream("Write a paragraph",
 				callback,
 				llama.WithMaxTokens(100),
 			)
@@ -587,7 +601,7 @@ var _ = Describe("Streaming Callback Behaviour", func() {
 				return len(output) < targetLength
 			}
 
-			err := model.GenerateStream("The quick brown fox",
+			err := ctx.GenerateStream("The quick brown fox",
 				callback,
 				llama.WithMaxTokens(100),
 			)
@@ -604,7 +618,7 @@ var _ = Describe("Streaming Callback Behaviour", func() {
 				return len(output) < targetLength
 			}
 
-			err := model.GenerateStream("Write a long story about adventures",
+			err := ctx.GenerateStream("Write a long story about adventures",
 				callback,
 				llama.WithMaxTokens(100),
 			)
@@ -622,7 +636,7 @@ var _ = Describe("Streaming Callback Behaviour", func() {
 				return count < maxCount
 			}
 
-			err := model.GenerateStream("Count tokens",
+			err := ctx.GenerateStream("Count tokens",
 				callback,
 				llama.WithMaxTokens(100),
 			)

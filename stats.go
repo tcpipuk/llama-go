@@ -105,28 +105,9 @@ func (m *Model) Stats() (*ModelStats, error) {
 		RepoURL:      m.getMetaString("general.repo_url"),
 	}
 
-	// Get runtime information
-	// Acquire a context from pool to get accurate runtime stats
-	ctx, err := m.pool.acquire()
-	if err != nil {
-		return nil, fmt.Errorf("failed to acquire context for stats: %w", err)
-	}
-	defer m.pool.release(ctx)
-
-	var cRuntimeInfo C.llama_wrapper_runtime_info
-	cKVCacheType := C.CString(m.pool.config.kvCacheType)
-	defer C.free(unsafe.Pointer(cKVCacheType))
-
-	C.llama_wrapper_get_runtime_info(m.modelPtr, ctx.ptr, cKVCacheType, &cRuntimeInfo)
-
-	stats.Runtime = RuntimeInfo{
-		ContextSize:     int(cRuntimeInfo.n_ctx),
-		BatchSize:       int(cRuntimeInfo.n_batch),
-		KVCacheType:     m.pool.config.kvCacheType,
-		KVCacheSizeMB:   int(cRuntimeInfo.kv_cache_size_mb),
-		GPULayersLoaded: int(cRuntimeInfo.gpu_layers),
-		TotalLayers:     int(cRuntimeInfo.total_layers),
-	}
+	// Note: Runtime information (context size, batch size, KV cache type) is
+	// context-specific and should be obtained from Context instances, not Model.
+	// The Runtime field in ModelStats will be zero-valued.
 
 	return stats, nil
 }

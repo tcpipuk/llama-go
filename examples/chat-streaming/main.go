@@ -69,12 +69,6 @@ func main() {
 	// Build model options
 	modelOpts := []llama.ModelOption{
 		llama.WithGPULayers(-1), // Use all available GPU layers
-		llama.WithThreads(runtime.NumCPU()),
-	}
-
-	// Add context size if specified (0 = use model's native maximum)
-	if *contextSize != 0 {
-		modelOpts = append(modelOpts, llama.WithContext(*contextSize))
 	}
 
 	model, err := llama.LoadModel(*modelPath, modelOpts...)
@@ -82,6 +76,22 @@ func main() {
 		log.Fatalf("Failed to load model: %v", err)
 	}
 	defer model.Close()
+
+	// Build context options
+	contextOpts := []llama.ContextOption{
+		llama.WithThreads(runtime.NumCPU()),
+	}
+
+	// Add context size if specified (0 = use model's native maximum)
+	if *contextSize != 0 {
+		contextOpts = append(contextOpts, llama.WithContext(*contextSize))
+	}
+
+	ctx, err := model.NewContext(contextOpts...)
+	if err != nil {
+		log.Fatalf("Failed to create context: %v", err)
+	}
+	defer ctx.Close()
 
 	// Display model statistics
 	stats, err := model.Stats()
@@ -93,14 +103,14 @@ func main() {
 
 	// Choose between single-message mode or interactive mode
 	if *message != "" {
-		runSingleMessage(model)
+		runSingleMessage(model, ctx)
 	} else {
-		runInteractive(model)
+		runInteractive(model, ctx)
 	}
 }
 
 // runSingleMessage handles single message streaming completion.
-func runSingleMessage(model *llama.Model) {
+func runSingleMessage(model *llama.Model, ctx *llama.Context) {
 	messages := []llama.ChatMessage{
 		{Role: "system", Content: *system},
 		{Role: "user", Content: *message},
@@ -109,7 +119,7 @@ func runSingleMessage(model *llama.Model) {
 	exampleui.DisplaySystemPrompt(*system)
 	fmt.Printf("\nUser: %s\n", *message)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*timeout)*time.Second)
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), time.Duration(*timeout)*time.Second)
 	defer cancel()
 
 	opts := llama.ChatOptions{
@@ -124,11 +134,11 @@ func runSingleMessage(model *llama.Model) {
 		opts.ReasoningFormat = llama.ReasoningFormatAuto
 	}
 
-	streamResponse(ctx, model, messages, opts)
+	streamResponse(ctxTimeout, ctx, messages, opts)
 }
 
 // runInteractive handles interactive chat loop with streaming.
-func runInteractive(model *llama.Model) {
+func runInteractive(model *llama.Model, ctx *llama.Context) {
 	exampleui.DisplaySystemPrompt(*system)
 	fmt.Println("\nType your messages and press Enter. Press Ctrl-C to quit.")
 	fmt.Println()
@@ -158,7 +168,7 @@ func runInteractive(model *llama.Model) {
 			Content: userInput,
 		})
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*timeout)*time.Second)
+		ctxTimeout, cancel := context.WithTimeout(context.Background(), time.Duration(*timeout)*time.Second)
 
 		opts := llama.ChatOptions{
 			MaxTokens:   llama.Int(*maxTokens),
@@ -179,7 +189,7 @@ func runInteractive(model *llama.Model) {
 		}
 
 		// Stream assistant response (streamResponse handles all formatting)
-		assistantContent := streamResponse(ctx, model, messages, opts)
+		assistantContent := streamResponse(ctxTimeout, ctx, messages, opts)
 		cancel()
 
 		// Add assistant response to conversation history
@@ -191,8 +201,8 @@ func runInteractive(model *llama.Model) {
 }
 
 // streamResponse handles the streaming of a single response and returns the content.
-func streamResponse(ctx context.Context, model *llama.Model, messages []llama.ChatMessage, opts llama.ChatOptions) string {
-	deltaCh, errCh := model.ChatStream(ctx, messages, opts)
+func streamResponse(ctxTimeout context.Context, ctx *llama.Context, messages []llama.ChatMessage, opts llama.ChatOptions) string {
+	deltaCh, errCh := ctx.ChatStream(ctxTimeout, messages, opts)
 	renderer := exampleui.NewStreamRenderer()
 
 	for {
@@ -208,8 +218,8 @@ func streamResponse(ctx context.Context, model *llama.Model, messages []llama.Ch
 				return renderer.HandleError(err)
 			}
 
-		case <-ctx.Done():
-			return renderer.HandleTimeout(ctx.Err())
+		case <-ctxTimeout.Done():
+			return renderer.HandleTimeout(ctxTimeout.Err())
 		}
 	}
 }

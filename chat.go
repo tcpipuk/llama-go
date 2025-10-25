@@ -13,30 +13,68 @@ import (
 	"unsafe"
 )
 
-// Chat performs non-streaming chat completion.
+// Chat implementation for Context is in context.go
+// This file contains shared types, options, and helpers
+
+// formatChatMessages applies the model's chat template to messages.
 //
-// This is a convenience method that collects all streaming deltas and returns
-// the complete response. For streaming output, use ChatStream instead.
+// This uses llama.cpp's native chat template system which supports 40+ formats
+// including chatml, llama2, llama3, mistral, gemma, phi3, and more. The template
+// is read from the model's GGUF metadata or provided via ChatOptions.ChatTemplate.
 //
-// The method builds a prompt from the provided messages using a simple chat
-// template format. Future versions will integrate with llama.cpp's native
-// chat template system for proper model-specific formatting.
+// Returns an error if no template is available (neither in options nor model metadata).
+// For raw completion without templates, use Generate() instead of Chat().
+func formatChatMessages(model *Model, messages []ChatMessage, opts ChatOptions) (string, error) {
+	// Priority: user-provided template > model's GGUF template > error
+	template := opts.ChatTemplate
+	if template == "" {
+		template = model.ChatTemplate()
+	}
+	if template == "" {
+		return "", fmt.Errorf("no chat template available: provide ChatOptions.ChatTemplate or use a model with embedded template (or use Generate() for raw completion)")
+	}
+
+	// Apply template using native llama.cpp implementation
+	prompt, err := applyChatTemplate(template, messages, true)
+	if err != nil {
+		return "", fmt.Errorf("failed to apply chat template: %w", err)
+	}
+
+	return prompt, nil
+}
+
+// parseReasoning extracts reasoning/thinking content from model output.
+// Returns content and reasoning_content separately.
+func parseReasoning(text string, format ReasoningFormat, chatFormat int) (content, reasoningContent string, err error) {
+	if format == ReasoningFormatNone || text == "" {
+		return text, "", nil
+	}
+
+	cText := C.CString(text)
+	defer C.free(unsafe.Pointer(cText))
+
+	cFormat := C.llama_wrapper_reasoning_format(format)
+	cChatFormat := C.int(chatFormat)
+
+	// Parse with is_partial=true for streaming
+	result := C.llama_wrapper_parse_reasoning(cText, C.bool(true), cFormat, cChatFormat)
+	if result == nil {
+		return "", "", fmt.Errorf("failed to parse reasoning: %s", C.GoString(C.llama_wrapper_last_error()))
+	}
+	defer C.llama_wrapper_free_parsed_message(result)
+
+	content = C.GoString(result.content)
+	if result.reasoning_content != nil {
+		reasoningContent = C.GoString(result.reasoning_content)
+	}
+
+	return content, reasoningContent, nil
+}
+
+// chatWithContext implements non-streaming chat completion using a specific context.
 //
-// Example:
-//
-//	messages := []llama.ChatMessage{
-//	    {Role: "system", Content: "You are a helpful assistant."},
-//	    {Role: "user", Content: "What is the capital of France?"},
-//	}
-//
-//	response, err := model.Chat(context.Background(), messages, llama.ChatOptions{
-//	    MaxTokens: llama.Int(100),
-//	})
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	fmt.Println(response.Content)
-func (m *Model) Chat(ctx gocontext.Context, messages []ChatMessage, opts ChatOptions) (*ChatResponse, error) {
+// This is an internal helper called by Context.Chat().
+func (m *Model) chatWithContext(ctx gocontext.Context, c *Context, messages []ChatMessage, opts ChatOptions) (*ChatResponse, error) {
 	// Build prompt from messages using chat template
 	prompt, err := formatChatMessages(m, messages, opts)
 	if err != nil {
@@ -65,8 +103,8 @@ func (m *Model) Chat(ctx gocontext.Context, messages []ChatMessage, opts ChatOpt
 		genOpts = append(genOpts, WithSeed(*opts.Seed))
 	}
 
-	// Generate using existing GenerateChannel
-	tokenCh, errCh := m.GenerateChannel(ctx, prompt, genOpts...)
+	// Generate using context's GenerateChannel
+	tokenCh, errCh := c.GenerateChannel(ctx, prompt, genOpts...)
 
 	var content strings.Builder
 
@@ -102,50 +140,10 @@ Loop:
 	}, nil
 }
 
-// ChatStream performs streaming chat completion with channels.
+// chatStreamWithContext implements streaming chat completion using a specific context.
 //
-// Returns two channels: one for streaming deltas and one for errors.
-// Both channels are closed when completion finishes. The delta channel
-// is buffered to prevent blocking model inference.
-//
-// For reasoning models, deltas may contain either Content or ReasoningContent
-// (or both, though typically one or the other). Clients should handle both
-// fields appropriately.
-//
-// The goroutine managing the stream will exit when:
-//   - Generation completes naturally
-//   - An error occurs
-//   - The context is cancelled
-//
-// Example:
-//
-//	messages := []llama.ChatMessage{
-//	    {Role: "user", Content: "Write a story"},
-//	}
-//
-//	deltaCh, errCh := model.ChatStream(context.Background(), messages,
-//	    llama.ChatOptions{MaxTokens: llama.Int(200)})
-//
-//	for {
-//	    select {
-//	    case delta, ok := <-deltaCh:
-//	        if !ok {
-//	            return
-//	        }
-//	        if delta.Content != "" {
-//	            fmt.Print(delta.Content)
-//	        }
-//	        if delta.ReasoningContent != "" {
-//	            // Handle reasoning output separately
-//	            fmt.Print("[thinking: ", delta.ReasoningContent, "]")
-//	        }
-//	    case err := <-errCh:
-//	        if err != nil {
-//	            log.Fatal(err)
-//	        }
-//	    }
-//	}
-func (m *Model) ChatStream(ctx gocontext.Context, messages []ChatMessage, opts ChatOptions) (<-chan ChatDelta, <-chan error) {
+// This is an internal helper called by Context.ChatStream().
+func (m *Model) chatStreamWithContext(ctx gocontext.Context, c *Context, messages []ChatMessage, opts ChatOptions) (<-chan ChatDelta, <-chan error) {
 	bufferSize := 256
 	if opts.StreamBufferSize > 0 {
 		bufferSize = opts.StreamBufferSize
@@ -190,8 +188,8 @@ func (m *Model) ChatStream(ctx gocontext.Context, messages []ChatMessage, opts C
 			genOpts = append(genOpts, WithSeed(*opts.Seed))
 		}
 
-		// Use existing GenerateChannel
-		tokenCh, genErrCh := m.GenerateChannel(ctx, prompt, genOpts...)
+		// Use context's GenerateChannel
+		tokenCh, genErrCh := c.GenerateChannel(ctx, prompt, genOpts...)
 
 		// Get chat format once before loop
 		chatFormat := m.getChatFormat()
@@ -258,61 +256,6 @@ func (m *Model) ChatStream(ctx gocontext.Context, messages []ChatMessage, opts C
 	}()
 
 	return deltaCh, errCh
-}
-
-// formatChatMessages applies the model's chat template to messages.
-//
-// This uses llama.cpp's native chat template system which supports 40+ formats
-// including chatml, llama2, llama3, mistral, gemma, phi3, and more. The template
-// is read from the model's GGUF metadata or provided via ChatOptions.ChatTemplate.
-//
-// Returns an error if no template is available (neither in options nor model metadata).
-// For raw completion without templates, use Generate() instead of Chat().
-func formatChatMessages(model *Model, messages []ChatMessage, opts ChatOptions) (string, error) {
-	// Priority: user-provided template > model's GGUF template > error
-	template := opts.ChatTemplate
-	if template == "" {
-		template = model.ChatTemplate()
-	}
-	if template == "" {
-		return "", fmt.Errorf("no chat template available: provide ChatOptions.ChatTemplate or use a model with embedded template (or use Generate() for raw completion)")
-	}
-
-	// Apply template using native llama.cpp implementation
-	prompt, err := applyChatTemplate(template, messages, true)
-	if err != nil {
-		return "", fmt.Errorf("failed to apply chat template: %w", err)
-	}
-
-	return prompt, nil
-}
-
-// parseReasoning extracts reasoning/thinking content from model output.
-// Returns content and reasoning_content separately.
-func parseReasoning(text string, format ReasoningFormat, chatFormat int) (content, reasoningContent string, err error) {
-	if format == ReasoningFormatNone || text == "" {
-		return text, "", nil
-	}
-
-	cText := C.CString(text)
-	defer C.free(unsafe.Pointer(cText))
-
-	cFormat := C.llama_wrapper_reasoning_format(format)
-	cChatFormat := C.int(chatFormat)
-
-	// Parse with is_partial=true for streaming
-	result := C.llama_wrapper_parse_reasoning(cText, C.bool(true), cFormat, cChatFormat)
-	if result == nil {
-		return "", "", fmt.Errorf("failed to parse reasoning: %s", C.GoString(C.llama_wrapper_last_error()))
-	}
-	defer C.llama_wrapper_free_parsed_message(result)
-
-	content = C.GoString(result.content)
-	if result.reasoning_content != nil {
-		reasoningContent = C.GoString(result.reasoning_content)
-	}
-
-	return content, reasoningContent, nil
 }
 
 // Int returns a pointer to the given int value.

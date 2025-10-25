@@ -26,42 +26,50 @@ var _ = Describe("LoadModel", func() {
 		})
 
 		It("should load model successfully", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 		})
 
 		It("should return non-nil model pointer", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 		})
 
 		It("should initialise llama backend", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
 			// Verify backend is initialised by performing a basic operation
-			tokens, err := model.Tokenize("test")
+			ctx, err := model.NewContext(llama.WithContext(2048))
 			Expect(err).NotTo(HaveOccurred())
-			Expect(tokens).NotTo(BeEmpty())
+			defer ctx.Close()
+
+			response, err := ctx.Generate("test", llama.WithMaxTokens(1))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(response).NotTo(BeEmpty())
 		})
 
 		It("should set finaliser for automatic cleanup", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
 			// Finaliser is set during LoadModel; verify model works normally
 			// (finaliser testing is in separate suite due to GC requirements)
-			tokens, err := model.Tokenize("test")
+			ctx, err := model.NewContext(llama.WithContext(2048))
 			Expect(err).NotTo(HaveOccurred())
-			Expect(tokens).NotTo(BeEmpty())
+			defer ctx.Close()
+
+			response, err := ctx.Generate("test", llama.WithMaxTokens(1))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(response).NotTo(BeEmpty())
 		})
 	})
 
@@ -105,7 +113,7 @@ var _ = Describe("LoadModel", func() {
 			}
 
 			// Test with path that might have spaces or special chars
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			defer model.Close()
 		})
@@ -117,7 +125,7 @@ var _ = Describe("LoadModel", func() {
 			}
 
 			// Test that valid paths work regardless of format
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
@@ -135,37 +143,50 @@ var _ = Describe("LoadModel", func() {
 		})
 
 		It("should apply WithContext option", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(4096))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
+			// Create context with custom size
+			ctx, err := model.NewContext(llama.WithContext(4096))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// Verify context size by attempting generation
-			response, err := model.Generate("Hello", llama.WithMaxTokens(10))
+			response, err := ctx.Generate("Hello", llama.WithMaxTokens(10))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
 
 		It("should apply WithBatch option", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithBatch(256))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
+			ctx, err := model.NewContext(llama.WithContext(2048), llama.WithBatch(256))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// Verify batch size by performing generation
-			response, err := model.Generate("Test", llama.WithMaxTokens(10))
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(10))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
 
 		It("should apply WithThreads option", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithThreads(2))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
+			ctx, err := model.NewContext(llama.WithContext(2048), llama.WithThreads(2))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// Verify threads by performing generation
-			response, err := model.Generate("Test", llama.WithMaxTokens(10))
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(10))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
@@ -176,20 +197,31 @@ var _ = Describe("LoadModel", func() {
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
+			ctx, err := model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// GPU layers configured, verify basic operation
-			response, err := model.Generate("Test", llama.WithMaxTokens(10))
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(10))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
 
 		It("should apply WithF16Memory option", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithF16Memory())
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
+			ctx, err := model.NewContext(
+				llama.WithContext(2048),
+				llama.WithF16Memory(),
+			)
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// F16 memory enabled, verify operation
-			response, err := model.Generate("Test", llama.WithMaxTokens(10))
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(10))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
@@ -200,8 +232,12 @@ var _ = Describe("LoadModel", func() {
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
+			ctx, err := model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// MLock enabled, verify operation
-			response, err := model.Generate("Test", llama.WithMaxTokens(10))
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(10))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
@@ -212,8 +248,12 @@ var _ = Describe("LoadModel", func() {
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
+			ctx, err := model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// MMap disabled, verify operation
-			response, err := model.Generate("Test", llama.WithMaxTokens(10))
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(10))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
@@ -225,13 +265,17 @@ var _ = Describe("LoadModel", func() {
 				Skip("TEST_EMBEDDING_MODEL not set")
 			}
 
-			model, err := llama.LoadModel(embeddingModelPath, llama.WithEmbeddings())
+			model, err := llama.LoadModel(embeddingModelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
+			ctx, err := model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// Embeddings enabled, verify we can get embeddings
-			embeddings, err := model.GetEmbeddings("Test")
+			embeddings, err := ctx.GetEmbeddings("Test")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(embeddings).NotTo(BeEmpty())
 		})
@@ -244,17 +288,18 @@ var _ = Describe("LoadModel", func() {
 			}
 
 			// Test with n_parallel=4 (lower than default 8 for embeddings)
-			model, err := llama.LoadModel(embeddingModelPath,
-				llama.WithEmbeddings(),
-				llama.WithParallel(4),
-			)
+			model, err := llama.LoadModel(embeddingModelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
+			ctx, err := model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// Verify parallel sequences work with batch embeddings
 			texts := []string{"Hello", "World", "Test", "Batch"}
-			embeddings, err := model.GetEmbeddingsBatch(texts)
+			embeddings, err := ctx.GetEmbeddingsBatch(texts)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(embeddings).To(HaveLen(4))
 			for _, emb := range embeddings {
@@ -264,18 +309,24 @@ var _ = Describe("LoadModel", func() {
 
 		It("should apply multiple options together", Label("integration"), func() {
 			model, err := llama.LoadModel(modelPath,
-				llama.WithContext(4096),
-				llama.WithBatch(256),
-				llama.WithThreads(4),
-				llama.WithF16Memory(),
+				llama.WithGPULayers(-1),
 				llama.WithMMap(true),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
+			ctx, err := model.NewContext(
+				llama.WithContext(4096),
+				llama.WithBatch(256),
+				llama.WithThreads(4),
+				llama.WithF16Memory(),
+			)
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// All options applied, verify operation
-			response, err := model.Generate("Test", llama.WithMaxTokens(10))
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(10))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
@@ -291,65 +342,85 @@ var _ = Describe("LoadModel", func() {
 			}
 		})
 
-		It("should use context size 2048 when not specified", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+		It("should use context size from model metadata when not specified", Label("integration"), func() {
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
-			// Default context is 2048, verify by successful generation
-			response, err := model.Generate("Test", llama.WithMaxTokens(10))
+			ctx, err := model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
+			// Context created successfully, verify by successful generation
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(10))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
 
 		It("should use batch size 512 when not specified", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
+			ctx, err := model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// Default batch is 512, verify by successful generation
-			response, err := model.Generate("Test", llama.WithMaxTokens(10))
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(10))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
 
 		It("should use CPU-only (0 GPU layers) when not specified", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
+			ctx, err := model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// Default is CPU-only, verify operation
-			response, err := model.Generate("Test", llama.WithMaxTokens(10))
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(10))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
 
 		It("should use runtime.NumCPU() threads when not specified", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
+
+			ctx, err := model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
 
 			// Default threads is runtime.NumCPU(), verify operation
 			expectedThreads := runtime.NumCPU()
 			Expect(expectedThreads).To(BeNumerically(">", 0))
 
-			response, err := model.Generate("Test", llama.WithMaxTokens(10))
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(10))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
 
 		It("should enable mmap by default", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
+			ctx, err := model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
 			// MMap enabled by default, verify operation
-			response, err := model.Generate("Test", llama.WithMaxTokens(10))
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(10))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
@@ -364,22 +435,26 @@ var _ = Describe("LoadModel", func() {
 				Skip("TEST_CHAT_MODEL not set")
 			}
 
-			// Attempt to load with potentially problematic config
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
+			Expect(err).NotTo(HaveOccurred())
+			defer model.Close()
+
+			// Attempt to create context with potentially problematic config
 			// (actual failure difficult to guarantee)
-			model, err := llama.LoadModel(modelPath, llama.WithContext(0))
+			ctx, err := model.NewContext(llama.WithContext(0))
 			if err != nil {
 				// If it fails, verify error message
 				Expect(err.Error()).To(Or(
 					ContainSubstring("Failed to create context"),
 					ContainSubstring("Invalid context size"),
 				))
-			} else {
+			} else if ctx != nil {
 				// If it succeeds (C++ applies default), clean up
-				defer model.Close()
+				ctx.Close()
 			}
 		})
 
-		It("should free model if context creation fails", Label("integration"), func() {
+		It("should free model if model load fails", Label("integration"), func() {
 			// Verify that failed loads don't leak memory
 			// Load failure should clean up properly
 			_, err := llama.LoadModel("/nonexistent/model.gguf")
@@ -403,7 +478,7 @@ var _ = Describe("Model.Close", func() {
 		})
 
 		It("should free resources successfully", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 
@@ -412,20 +487,20 @@ var _ = Describe("Model.Close", func() {
 		})
 
 		It("should set pointer to nil", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 
 			model.Close()
 
 			// Verify model is closed by attempting operation
-			_, err = model.Generate("test")
+			_, err = model.NewContext(llama.WithContext(2048))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(Equal("model is closed"))
 		})
 
 		It("should remove finaliser", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 
@@ -437,7 +512,7 @@ var _ = Describe("Model.Close", func() {
 		})
 
 		It("should always return nil error", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 
@@ -457,7 +532,7 @@ var _ = Describe("Model.Close", func() {
 		})
 
 		It("should be safe to call Close() twice", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 
@@ -469,7 +544,7 @@ var _ = Describe("Model.Close", func() {
 		})
 
 		It("should not panic on double-close", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 
@@ -480,7 +555,7 @@ var _ = Describe("Model.Close", func() {
 		})
 
 		It("should remain nil after second close", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 
@@ -488,7 +563,7 @@ var _ = Describe("Model.Close", func() {
 			model.Close()
 
 			// Verify still closed
-			_, err = model.Generate("test")
+			_, err = model.NewContext(llama.WithContext(2048))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(Equal("model is closed"))
 		})
@@ -505,7 +580,7 @@ var _ = Describe("Model.Close", func() {
 		})
 
 		It("should be idempotent", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 
@@ -520,7 +595,7 @@ var _ = Describe("Model.Close", func() {
 		})
 
 		It("should not error on nil pointer", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 
@@ -547,7 +622,7 @@ var _ = Describe("Model Finaliser", func() {
 		It("should call Close() via finaliser", Label("integration", "slow"), func() {
 			// Load model and let it go out of scope
 			func() {
-				model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+				model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(model).NotTo(BeNil())
 				// Model goes out of scope without explicit Close()
@@ -559,20 +634,20 @@ var _ = Describe("Model Finaliser", func() {
 
 			// If finaliser worked, no crash or leak
 			// Load another model to verify no corruption
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			defer model.Close()
 		})
 
 		It("should free resources after GC", Label("integration", "slow"), func() {
 			// Track that resources are freed by finaliser
-			initialModel, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			initialModel, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			initialModel.Close()
 
 			// Load model without closing
 			func() {
-				model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+				model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(model).NotTo(BeNil())
 				// Goes out of scope
@@ -583,13 +658,13 @@ var _ = Describe("Model Finaliser", func() {
 			runtime.GC()
 
 			// Should be able to load again without issues
-			newModel, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			newModel, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			defer newModel.Close()
 		})
 
 		It("should handle finaliser running after explicit Close()", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 
@@ -602,7 +677,7 @@ var _ = Describe("Model Finaliser", func() {
 
 			// No double-free, no crash
 			// Verify by loading new model
-			newModel, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			newModel, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			defer newModel.Close()
 		})
@@ -619,7 +694,7 @@ var _ = Describe("Model Finaliser", func() {
 		})
 
 		It("should remove finaliser on Close()", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 
@@ -631,13 +706,13 @@ var _ = Describe("Model Finaliser", func() {
 			runtime.GC()
 
 			// Verify no issues
-			newModel, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			newModel, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			defer newModel.Close()
 		})
 
 		It("should not double-free if GC runs later", Label("integration"), func() {
-			model, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 
@@ -649,11 +724,15 @@ var _ = Describe("Model Finaliser", func() {
 			runtime.GC()
 
 			// Verify system still stable
-			newModel, err := llama.LoadModel(modelPath, llama.WithContext(2048))
+			newModel, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
 			defer newModel.Close()
 
-			response, err := newModel.Generate("Test", llama.WithMaxTokens(5))
+			ctx, err := newModel.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(5))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
@@ -674,30 +753,39 @@ var _ = Describe("Progress Callbacks", func() {
 		It("should load model without printing progress dots", Label("integration"), func() {
 			model, err := llama.LoadModel(modelPath,
 				llama.WithSilentLoading(),
-				llama.WithContext(2048),
+				llama.WithGPULayers(-1),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
 			// Verify model works normally after silent loading
-			tokens, err := model.Tokenize("test")
+			ctx, err := model.NewContext(llama.WithContext(2048))
 			Expect(err).NotTo(HaveOccurred())
-			Expect(tokens).NotTo(BeEmpty())
+			defer ctx.Close()
+
+			response, err := ctx.Generate("test", llama.WithMaxTokens(1))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(response).NotTo(BeEmpty())
 		})
 
 		It("should work with other options", Label("integration"), func() {
 			model, err := llama.LoadModel(modelPath,
 				llama.WithSilentLoading(),
-				llama.WithContext(2048),
 				llama.WithGPULayers(0),
-				llama.WithThreads(2),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
-			response, err := model.Generate("Test", llama.WithMaxTokens(5))
+			ctx, err := model.NewContext(
+				llama.WithContext(2048),
+				llama.WithThreads(2),
+			)
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(5))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
@@ -723,7 +811,7 @@ var _ = Describe("Progress Callbacks", func() {
 					callCount++
 					return true // Continue loading
 				}),
-				llama.WithContext(2048),
+				llama.WithGPULayers(-1),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
@@ -746,7 +834,7 @@ var _ = Describe("Progress Callbacks", func() {
 					progressValues = append(progressValues, progress)
 					return true
 				}),
-				llama.WithContext(2048),
+				llama.WithGPULayers(-1),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
@@ -768,7 +856,7 @@ var _ = Describe("Progress Callbacks", func() {
 					// Cancel immediately
 					return false
 				}),
-				llama.WithContext(2048),
+				llama.WithGPULayers(-1),
 			)
 
 			// Loading should fail due to cancellation
@@ -789,7 +877,7 @@ var _ = Describe("Progress Callbacks", func() {
 					}
 					return true
 				}),
-				llama.WithContext(2048),
+				llama.WithGPULayers(-1),
 			)
 
 			// Should fail due to cancellation
@@ -809,9 +897,7 @@ var _ = Describe("Progress Callbacks", func() {
 					callCount++
 					return true
 				}),
-				llama.WithContext(2048),
 				llama.WithGPULayers(0),
-				llama.WithThreads(2),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
@@ -820,7 +906,14 @@ var _ = Describe("Progress Callbacks", func() {
 			Expect(callCount).To(BeNumerically(">", 0))
 
 			// Verify model works after callback-monitored loading
-			response, err := model.Generate("Test", llama.WithMaxTokens(5))
+			ctx, err := model.NewContext(
+				llama.WithContext(2048),
+				llama.WithThreads(2),
+			)
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
+			response, err := ctx.Generate("Test", llama.WithMaxTokens(5))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response).NotTo(BeEmpty())
 		})
@@ -833,7 +926,7 @@ var _ = Describe("Progress Callbacks", func() {
 					callCount++
 					return true
 				}),
-				llama.WithContext(2048),
+				llama.WithGPULayers(-1),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
@@ -872,7 +965,7 @@ var _ = Describe("Progress Callbacks", func() {
 				llama.WithProgressCallback(func(progress float32) bool {
 					return false // Cancel immediately
 				}),
-				llama.WithContext(2048),
+				llama.WithGPULayers(-1),
 			)
 
 			Expect(err).To(HaveOccurred())
@@ -901,7 +994,7 @@ var _ = Describe("Progress Callbacks", func() {
 					count1++
 					return true
 				}),
-				llama.WithContext(2048),
+				llama.WithGPULayers(-1),
 			)
 			Expect(err1).NotTo(HaveOccurred())
 			Expect(model1).NotTo(BeNil())
@@ -912,7 +1005,7 @@ var _ = Describe("Progress Callbacks", func() {
 					count2++
 					return true
 				}),
-				llama.WithContext(2048),
+				llama.WithGPULayers(-1),
 			)
 			Expect(err2).NotTo(HaveOccurred())
 			Expect(model2).NotTo(BeNil())
@@ -923,13 +1016,21 @@ var _ = Describe("Progress Callbacks", func() {
 			Expect(count2).To(BeNumerically(">", 0))
 
 			// Verify both models work
-			tokens1, err := model1.Tokenize("test")
+			ctx1, err := model1.NewContext(llama.WithContext(2048))
 			Expect(err).NotTo(HaveOccurred())
-			Expect(tokens1).NotTo(BeEmpty())
+			defer ctx1.Close()
 
-			tokens2, err := model2.Tokenize("test")
+			response1, err := ctx1.Generate("test", llama.WithMaxTokens(1))
 			Expect(err).NotTo(HaveOccurred())
-			Expect(tokens2).NotTo(BeEmpty())
+			Expect(response1).NotTo(BeEmpty())
+
+			ctx2, err := model2.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx2.Close()
+
+			response2, err := ctx2.Generate("test", llama.WithMaxTokens(1))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(response2).NotTo(BeEmpty())
 		})
 
 		It("should assign unique callback IDs", Label("integration"), func() {
@@ -937,7 +1038,7 @@ var _ = Describe("Progress Callbacks", func() {
 				llama.WithProgressCallback(func(progress float32) bool {
 					return true
 				}),
-				llama.WithContext(2048),
+				llama.WithGPULayers(-1),
 			)
 			Expect(err1).NotTo(HaveOccurred())
 			Expect(model1).NotTo(BeNil())
@@ -949,7 +1050,7 @@ var _ = Describe("Progress Callbacks", func() {
 				llama.WithProgressCallback(func(progress float32) bool {
 					return true
 				}),
-				llama.WithContext(2048),
+				llama.WithGPULayers(-1),
 			)
 			Expect(err2).NotTo(HaveOccurred())
 			Expect(model2).NotTo(BeNil())
@@ -977,13 +1078,17 @@ var _ = Describe("Progress Callbacks", func() {
 		It("should work with WithSilentLoading for embedding models", Label("integration"), func() {
 			model, err := llama.LoadModel(embeddingModelPath,
 				llama.WithSilentLoading(),
-				llama.WithEmbeddings(),
+				llama.WithGPULayers(-1),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
-			embeddings, err := model.GetEmbeddings("Test")
+			ctx, err := model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
+			embeddings, err := ctx.GetEmbeddings("Test")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(embeddings).NotTo(BeEmpty())
 		})
@@ -996,7 +1101,7 @@ var _ = Describe("Progress Callbacks", func() {
 					callCount++
 					return true
 				}),
-				llama.WithEmbeddings(),
+				llama.WithGPULayers(-1),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(model).NotTo(BeNil())
@@ -1004,7 +1109,11 @@ var _ = Describe("Progress Callbacks", func() {
 
 			Expect(callCount).To(BeNumerically(">", 0))
 
-			embeddings, err := model.GetEmbeddings("Test")
+			ctx, err := model.NewContext(llama.WithContext(2048))
+			Expect(err).NotTo(HaveOccurred())
+			defer ctx.Close()
+
+			embeddings, err := ctx.GetEmbeddings("Test")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(embeddings).NotTo(BeEmpty())
 		})

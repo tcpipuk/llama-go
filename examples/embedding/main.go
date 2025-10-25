@@ -50,11 +50,7 @@ func main() {
 	// Load model with embeddings enabled
 	fmt.Printf("Loading embedding model: %s\n", *modelPath)
 	model, err := llama.LoadModel(*modelPath,
-		llama.WithContext(*context),
 		llama.WithGPULayers(*gpuLayers),
-		llama.WithThreads(runtime.NumCPU()),
-		llama.WithEmbeddings(),
-		llama.WithF16Memory(),
 		llama.WithMMap(true),
 	)
 	if err != nil {
@@ -63,11 +59,24 @@ func main() {
 	}
 	defer model.Close()
 
+	// Create context with embedding support
+	ctx, err := model.NewContext(
+		llama.WithContext(*context),
+		llama.WithThreads(runtime.NumCPU()),
+		llama.WithEmbeddings(),
+		llama.WithF16Memory(),
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating context: %v\n", err)
+		os.Exit(1)
+	}
+	defer ctx.Close()
+
 	fmt.Printf("Model loaded successfully.\n")
 	fmt.Printf("Getting embeddings for: %s\n", *text)
 
 	// Generate embeddings
-	embeddings, err := model.GetEmbeddings(*text)
+	embeddings, err := ctx.GetEmbeddings(*text)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating embeddings: %v\n", err)
 		os.Exit(1)

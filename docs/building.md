@@ -159,7 +159,22 @@ No runtime configuration needed - just run your binary:
 ## Hardware acceleration
 
 Different backends provide hardware-accelerated inference. Build with the appropriate `BUILD_TYPE`
-and link with the required libraries:
+and link with the required libraries.
+
+Once built, use `llama.WithGPULayers(-1)` when loading models to offload computation to the GPU:
+
+```go
+// Load model with GPU acceleration (ModelOption)
+model, _ := llama.LoadModel(
+    "model.gguf",
+    llama.WithGPULayers(-1), // -1 = offload all layers
+)
+defer model.Close()
+
+// Create context (ContextOption)
+ctx, _ := model.NewContext(llama.WithContext(2048))
+defer ctx.Close()
+```
 
 | Backend | Build command | CGO flags | Notes |
 |---------|---------------|-----------|-------|
@@ -277,6 +292,44 @@ git submodule update --init --recursive
 - Use the provided Dockerfile.build for reliable multi-architecture builds
 - Ensure you have buildx enabled: `docker buildx create --use`
 
+## Configuration options
+
+The API separates options into **ModelOption** (affects how weights are loaded) and
+**ContextOption** (affects execution behaviour):
+
+### ModelOption (for LoadModel)
+
+```go
+model, _ := llama.LoadModel(
+    "model.gguf",
+    llama.WithGPULayers(-1),              // Offload all layers to GPU
+    llama.WithMLock(),                    // Lock model in RAM (prevents swapping)
+    llama.WithMMap(true),                 // Enable memory mapping
+    llama.WithMainGPU(0),                 // Primary GPU for multi-GPU
+    llama.WithTensorSplit([]float32{0.7, 0.3}), // Split across GPUs
+    llama.WithSilentLoading(),            // Suppress progress output
+)
+```
+
+### ContextOption (for NewContext)
+
+```go
+ctx, _ := model.NewContext(
+    llama.WithContext(8192),        // Context window size
+    llama.WithBatch(512),           // Batch size for parallel processing
+    llama.WithThreads(16),          // CPU threads for inference
+    llama.WithThreadsBatch(16),     // CPU threads for batch processing
+    llama.WithF16Memory(),          // Use float16 for KV cache (saves VRAM)
+    llama.WithEmbeddings(),         // Enable embedding mode
+    llama.WithKVCacheType("q8_0"),  // Quantized KV cache (saves VRAM)
+    llama.WithFlashAttn(),          // Enable Flash Attention (faster)
+    llama.WithParallel(4),          // Number of parallel sequences
+    llama.WithPrefixCaching(),      // Cache common prompt prefixes
+)
+```
+
+See the [API guide](api-guide.md) for detailed option explanations and usage patterns.
+
 ## Performance considerations
 
 Choose your build type based on your hardware:
@@ -286,6 +339,9 @@ Choose your build type based on your hardware:
 - **AMD GPU**: ROCm/HIP support varies by GPU generation
 - **Apple Silicon**: Metal provides excellent performance on M-series Macs
 - **General GPU**: OpenCL works across platforms but with varying performance
+
+After building with acceleration, use `llama.WithGPULayers(-1)` in LoadModel to offload
+computation to the GPU.
 
 ## Clean builds
 

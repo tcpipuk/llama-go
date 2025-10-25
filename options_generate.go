@@ -174,21 +174,6 @@ func WithDebug() GenerateOption {
 	}
 }
 
-// WithPrefixCaching enables or disables KV cache prefix reuse.
-// When enabled (default), the library reuses KV cache entries for matching
-// prompt prefixes, significantly improving performance for conversation-style
-// usage or repeated prompts.
-//
-// Disable this if you need guaranteed-fresh state for every generation,
-// though the performance cost is minimal with the last-token refresh optimisation.
-//
-// Default: true (enabled)
-func WithPrefixCaching(enabled bool) GenerateOption {
-	return func(c *generateConfig) {
-		c.prefixCaching = enabled
-	}
-}
-
 // Basic sampling parameters
 
 // WithMinP enables minimum probability threshold sampling.
