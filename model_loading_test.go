@@ -1084,7 +1084,10 @@ var _ = Describe("Progress Callbacks", func() {
 			Expect(model).NotTo(BeNil())
 			defer model.Close()
 
-			ctx, err := model.NewContext(llama.WithContext(2048))
+			ctx, err := model.NewContext(
+				llama.WithContext(2048),
+				llama.WithEmbeddings(),
+			)
 			Expect(err).NotTo(HaveOccurred())
 			defer ctx.Close()
 
@@ -1109,7 +1112,10 @@ var _ = Describe("Progress Callbacks", func() {
 
 			Expect(callCount).To(BeNumerically(">", 0))
 
-			ctx, err := model.NewContext(llama.WithContext(2048))
+			ctx, err := model.NewContext(
+				llama.WithContext(2048),
+				llama.WithEmbeddings(),
+			)
 			Expect(err).NotTo(HaveOccurred())
 			defer ctx.Close()
 
