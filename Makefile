@@ -246,13 +246,22 @@ wrapper.o:
 libbinding.a: llama.cpp/ggml.o wrapper.o $(EXTRA_TARGETS)
 	cd build && cmake --build . --target common
 	ar crs libbinding.a wrapper.o $(EXTRA_TARGETS)
+	cp build/common/libcommon.a .
+ifneq (,$(findstring -DBUILD_SHARED_LIBS=OFF,$(CMAKE_ARGS)))
+	@echo "Copying static libraries..."
+	cp build/src/libllama.a .
+	cp build/ggml/src/libggml.a .
+	cp build/ggml/src/libggml-base.a .
+	cp build/ggml/src/libggml-cpu.a .
+else
+	@echo "Copying shared libraries..."
 	cp build/bin/libllama.so .
 	cp build/bin/libggml.so .
 	cp build/bin/libggml-base.so .
 	cp build/bin/libggml-cpu.so .
-	cp build/common/libcommon.a .
 ifeq ($(BUILD_TYPE),cublas)
 	cp build/bin/libggml-cuda.so .
+endif
 endif
 
 clean:
