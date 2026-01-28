@@ -1303,7 +1303,7 @@ llama_wrapper_parsed_message* llama_wrapper_parse_reasoning(
 
     try {
         // Configure syntax for parsing
-        common_chat_syntax syntax;
+        common_chat_parser_params syntax;
         syntax.format = static_cast<common_chat_format>(chat_format);
         syntax.reasoning_format = static_cast<common_reasoning_format>(format);
         syntax.reasoning_in_content = false;  // Extract to separate field for streaming
