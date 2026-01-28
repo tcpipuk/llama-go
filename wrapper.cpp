@@ -284,6 +284,10 @@ char* llama_wrapper_generate_with_tokens(void* ctx, const int* tokens, int n_tok
     }
 
     auto wrapper = static_cast<llama_wrapper_context_t*>(ctx);
+    if (!wrapper->ctx) {
+        g_last_error = "Context has been freed";
+        return nullptr;
+    }
 
     try {
         // Convert C tokens to vector
@@ -580,6 +584,10 @@ char* llama_wrapper_generate(void* ctx, llama_wrapper_generate_params params) {
     }
 
     auto wrapper = static_cast<llama_wrapper_context_t*>(ctx);
+    if (!wrapper->ctx) {
+        g_last_error = "Context has been freed";
+        return nullptr;
+    }
 
     try {
         // Tokenise the prompt

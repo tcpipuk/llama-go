@@ -560,6 +560,17 @@ func (c *Context) generateWithConfig(prompt string, config generateConfig, callb
 		return "", fmt.Errorf("context is closed")
 	}
 
+	// Check if model is closed
+	if c.model == nil {
+		return "", fmt.Errorf("model is closed")
+	}
+	c.model.mu.RLock()
+	modelClosed := c.model.closed
+	c.model.mu.RUnlock()
+	if modelClosed {
+		return "", fmt.Errorf("model is closed")
+	}
+
 	// Convert prompt to C string
 	cPrompt := C.CString(prompt)
 	defer C.free(unsafe.Pointer(cPrompt))
