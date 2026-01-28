@@ -796,6 +796,17 @@ func (c *Context) generateWithDraftAndConfig(prompt string, draft *Context, conf
 		return "", fmt.Errorf("context is closed")
 	}
 
+	// Check if model is closed
+	if c.model == nil {
+		return "", fmt.Errorf("model is closed")
+	}
+	c.model.mu.RLock()
+	modelClosed := c.model.closed
+	c.model.mu.RUnlock()
+	if modelClosed {
+		return "", fmt.Errorf("model is closed")
+	}
+
 	draft.mu.RLock()
 	if draft.closed {
 		draft.mu.RUnlock()
@@ -803,6 +814,17 @@ func (c *Context) generateWithDraftAndConfig(prompt string, draft *Context, conf
 	}
 	draftPtr := draft.contextPtr
 	draft.mu.RUnlock()
+
+	// Check if draft model is closed
+	if draft.model == nil {
+		return "", fmt.Errorf("draft model is closed")
+	}
+	draft.model.mu.RLock()
+	draftModelClosed := draft.model.closed
+	draft.model.mu.RUnlock()
+	if draftModelClosed {
+		return "", fmt.Errorf("draft model is closed")
+	}
 
 	// Convert prompt to C string
 	cPrompt := C.CString(prompt)

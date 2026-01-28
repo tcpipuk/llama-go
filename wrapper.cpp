@@ -630,6 +630,14 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
 
     auto wrapper_tgt = static_cast<llama_wrapper_context_t*>(ctx_target);
     auto wrapper_dft = static_cast<llama_wrapper_context_t*>(ctx_draft);
+    if (!wrapper_tgt->ctx) {
+        g_last_error = "Target context has been freed";
+        return nullptr;
+    }
+    if (!wrapper_dft->ctx) {
+        g_last_error = "Draft context has been freed";
+        return nullptr;
+    }
 
     try {
         // Clear KV caches from divergence points
@@ -898,6 +906,14 @@ char* llama_wrapper_generate_draft(void* ctx_target, void* ctx_draft, llama_wrap
 
     auto wrapper_tgt = static_cast<llama_wrapper_context_t*>(ctx_target);
     auto wrapper_dft = static_cast<llama_wrapper_context_t*>(ctx_draft);
+    if (!wrapper_tgt->ctx) {
+        g_last_error = "Target context has been freed";
+        return nullptr;
+    }
+    if (!wrapper_dft->ctx) {
+        g_last_error = "Draft context has been freed";
+        return nullptr;
+    }
 
     try {
         // Tokenise the prompt
