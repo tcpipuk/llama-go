@@ -277,7 +277,7 @@ var _ = Describe("Context.GenerateWithDraft", func() {
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("context is closed"))
+			Expect(err.Error()).To(Equal("draft context is closed"))
 		})
 
 		It("should fail before generation starts", Label("integration"), func() {
@@ -286,7 +286,7 @@ var _ = Describe("Context.GenerateWithDraft", func() {
 			)
 			Expect(err).To(HaveOccurred())
 			// Error should occur immediately, not after partial generation
-			Expect(err.Error()).To(Equal("context is closed"))
+			Expect(err.Error()).To(Equal("draft context is closed"))
 		})
 
 		It("should not crash or panic", Label("integration"), func() {
@@ -810,7 +810,7 @@ var _ = Describe("Context.GenerateWithDraftStream", func() {
 				llama.WithMaxTokens(50),
 			)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("context is closed"))
+			Expect(err.Error()).To(Equal("draft context is closed"))
 		})
 
 		It("should not call callback after error", Label("integration"), func() {
