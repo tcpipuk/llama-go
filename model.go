@@ -10,7 +10,7 @@ import (
 /*
 #cgo CFLAGS: -I./llama.cpp -I./ -I./llama.cpp/ggml/include -I./llama.cpp/include -I./llama.cpp/common -I./llama.cpp/vendor
 #cgo CPPFLAGS: -I./llama.cpp -I./ -I./llama.cpp/ggml/include -I./llama.cpp/include -I./llama.cpp/common -I./llama.cpp/vendor
-#cgo LDFLAGS: -L./ -lbinding -lcommon -lllama -lggml-cpu -lggml-base -lggml -lstdc++ -lm
+#cgo LDFLAGS: -L./ -lbinding -lcommon -lllama -lggml -lggml-cpu -lggml-base -lstdc++ -lm -lgomp
 #include "wrapper.h"
 #include <stdlib.h>
 
@@ -281,8 +281,8 @@ func (m *Model) NewContext(opts ...ContextOption) (*Context, error) {
 		mlock:           false, // Not used for context creation
 		mmap:            false, // Not used for context creation
 		embeddings:      C.bool(config.embeddings),
-		main_gpu:        nil,         // Not used for context creation
-		tensor_split:    nil,         // Not used for context creation
+		main_gpu:        nil, // Not used for context creation
+		tensor_split:    nil, // Not used for context creation
 		kv_cache_type:   cKVCacheType,
 		flash_attn:      cFlashAttn,
 	}
