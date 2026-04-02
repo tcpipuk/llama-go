@@ -657,17 +657,18 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
             return nullptr;
         }
 
+        // Set up speculative parameters
+        common_params_speculative spec_params;
+        spec_params.n_max = params.n_draft > 0 ? params.n_draft : 16;
+        spec_params.p_min = 0.75f;
+        spec_params.type = COMMON_SPECULATIVE_TYPE_DRAFT;
+
         // Initialize speculative sampling
-        common_speculative* spec = common_speculative_init(wrapper_tgt->ctx, wrapper_dft->ctx);
+        common_speculative* spec = common_speculative_init(spec_params, wrapper_tgt->ctx);
         if (!spec) {
             g_last_error = "Failed to initialize speculative sampling";
             return nullptr;
         }
-
-        // Set up parameters
-        common_speculative_params spec_params;
-        spec_params.n_draft = params.n_draft > 0 ? params.n_draft : 16;
-        spec_params.p_min = 0.75f;
 
         // Create sampling parameters
         common_params_sampling sampling_params;
@@ -787,7 +788,7 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
         // Generation loop
         while (result.length() < (size_t)n_predict) {
             // Generate draft tokens
-            llama_tokens draft = common_speculative_gen_draft(spec, spec_params, prompt_tgt, last_token);
+            llama_tokens draft = common_speculative_draft(spec, spec_params, prompt_tgt, last_token);
 
             // Prepare batch with last token and draft
             common_batch_clear(batch_tgt);
@@ -1331,7 +1332,6 @@ llama_wrapper_parsed_message* llama_wrapper_parse_reasoning(
         syntax.format = static_cast<common_chat_format>(chat_format);
         syntax.reasoning_format = static_cast<common_reasoning_format>(format);
         syntax.reasoning_in_content = false;  // Extract to separate field for streaming
-        syntax.thinking_forced_open = false;
         syntax.parse_tool_calls = false;  // Don't need tool parsing for this use case
 
         // Parse the text
