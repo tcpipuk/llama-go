@@ -21,12 +21,12 @@ type contextConfig struct {
 // generateConfig holds configuration for text generation
 type generateConfig struct {
 	// Basic generation
-	maxTokens     int
-	temperature   float32
-	seed          int
-	stopWords     []string
-	draftTokens   int
-	debug         bool
+	maxTokens   int
+	temperature float32
+	seed        int
+	stopWords   []string
+	draftTokens int
+	debug       bool
 
 	// Basic sampling parameters
 	topK      int
@@ -84,11 +84,11 @@ var defaultContextConfig = contextConfig{
 
 var defaultGenerateConfig = generateConfig{
 	// Basic generation
-	maxTokens:     128,
-	temperature:   0.8,
-	seed:          -1,
-	draftTokens:   16,
-	debug:         false,
+	maxTokens:   128,
+	temperature: 0.8,
+	seed:        -1,
+	draftTokens: 16,
+	debug:       false,
 
 	// Basic sampling parameters
 	topK:      40,

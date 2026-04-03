@@ -195,21 +195,21 @@ var _ = Describe("Model.Generate", func() {
 		})
 
 		It("should generate different outputs with WithSeed(-1) on repeated calls", Label("integration"), func() {
-			response1, err := ctx.Generate("The capital of France is",
-				llama.WithMaxTokens(10),
+			response1, err := ctx.Generate("Once upon a time in a land far away,",
+				llama.WithMaxTokens(30),
 				llama.WithSeed(-1),
-				llama.WithTemperature(0.8),
+				llama.WithTemperature(1.2),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			response2, err := ctx.Generate("The capital of France is",
-				llama.WithMaxTokens(10),
+			response2, err := ctx.Generate("Once upon a time in a land far away,",
+				llama.WithMaxTokens(30),
 				llama.WithSeed(-1),
-				llama.WithTemperature(0.8),
+				llama.WithTemperature(1.2),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Random seed should produce different outputs (high probability)
+			// Random seed should produce different outputs (high probability with creative prompt)
 			Expect(response1).NotTo(Equal(response2))
 		})
 	})
