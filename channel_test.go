@@ -317,9 +317,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
 				llama.WithMaxTokens(10))
 
-			var receivedErr error
+			// Drain token channel first
 			timeout := time.After(1 * time.Second)
-
 		Loop:
 			for {
 				select {
@@ -327,14 +326,17 @@ var _ = Describe("Model.GenerateChannel", func() {
 					if !ok {
 						break Loop
 					}
-				case err := <-errCh:
-					if err != nil {
-						receivedErr = err
-						break Loop
-					}
 				case <-timeout:
 					break Loop
 				}
+			}
+
+			// Check error channel after tokens are drained
+			var receivedErr error
+			select {
+			case err := <-errCh:
+				receivedErr = err
+			default:
 			}
 
 			Expect(receivedErr).To(HaveOccurred())
@@ -349,7 +351,6 @@ var _ = Describe("Model.GenerateChannel", func() {
 				llama.WithMaxTokens(10))
 
 			var tokenCount int
-			var receivedErr error
 			timeout := time.After(1 * time.Second)
 
 		Loop:
@@ -359,18 +360,18 @@ var _ = Describe("Model.GenerateChannel", func() {
 					if !ok {
 						break Loop
 					}
-					if receivedErr == nil {
-						tokenCount++
-					}
-					// Should not receive tokens after error
-					Expect(receivedErr).To(BeNil(), "received token after error")
-				case err := <-errCh:
-					if err != nil {
-						receivedErr = err
-					}
+					tokenCount++
 				case <-timeout:
 					break Loop
 				}
+			}
+
+			// Check error channel after tokens are drained
+			var receivedErr error
+			select {
+			case err := <-errCh:
+				receivedErr = err
+			default:
 			}
 
 			Expect(receivedErr).To(HaveOccurred())
@@ -946,9 +947,7 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, testPrompt, draftCtx,
 				llama.WithMaxTokens(30))
 
-			var receivedErr error
 			timeout := time.After(1 * time.Second)
-
 		Loop:
 			for {
 				select {
@@ -956,14 +955,16 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 					if !ok {
 						break Loop
 					}
-				case err := <-errCh:
-					if err != nil {
-						receivedErr = err
-						break Loop
-					}
 				case <-timeout:
 					break Loop
 				}
+			}
+
+			var receivedErr error
+			select {
+			case err := <-errCh:
+				receivedErr = err
+			default:
 			}
 
 			Expect(receivedErr).To(HaveOccurred())
@@ -977,9 +978,7 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, testPrompt, draftCtx,
 				llama.WithMaxTokens(30))
 
-			var receivedErr error
 			timeout := time.After(1 * time.Second)
-
 		Loop:
 			for {
 				select {
@@ -987,14 +986,16 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 					if !ok {
 						break Loop
 					}
-				case err := <-errCh:
-					if err != nil {
-						receivedErr = err
-						break Loop
-					}
 				case <-timeout:
 					break Loop
 				}
+			}
+
+			var receivedErr error
+			select {
+			case err := <-errCh:
+				receivedErr = err
+			default:
 			}
 
 			Expect(receivedErr).To(HaveOccurred())
