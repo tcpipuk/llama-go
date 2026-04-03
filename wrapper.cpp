@@ -640,14 +640,13 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
     }
 
     try {
-        // Clear KV caches from divergence points
+        // Clear target KV cache from divergence point
         // Sequence ID 0 is the default sequence for single-sequence inference
         // For speculative generation with full cache hits, we need to refresh the second-to-last token
         // (since we decode all but last token), so clear from that position
         int target_clear_from = (target_prefix_len == n_tokens && n_tokens > 1) ? n_tokens - 2 : target_prefix_len;
-        int draft_clear_from = (draft_prefix_len == n_tokens && n_tokens > 1) ? n_tokens - 2 : draft_prefix_len;
         llama_memory_seq_rm(llama_get_memory(wrapper_tgt->ctx), 0, target_clear_from, -1);
-        llama_memory_seq_rm(llama_get_memory(wrapper_dft->ctx), 0, draft_clear_from, -1);
+        // Note: draft KV cache is managed internally by common_speculative (b8635+)
 
         // Convert C tokens to vector
         std::vector<llama_token> prompt_tokens(tokens, tokens + n_tokens);
@@ -658,10 +657,20 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
         }
 
         // Set up speculative parameters
+        // Since b8635, common_speculative_init creates its own draft context internally
+        // from the model pointer, so we pass the draft model rather than a pre-created context
         common_params_speculative spec_params;
         spec_params.n_max = params.n_draft > 0 ? params.n_draft : 16;
         spec_params.p_min = 0.75f;
         spec_params.type = COMMON_SPECULATIVE_TYPE_DRAFT;
+        spec_params.model_dft = wrapper_dft->model;
+        spec_params.mparams_dft.path = "draft";
+
+        spec_params.cparams_dft = llama_context_default_params();
+        spec_params.cparams_dft.n_ctx           = llama_n_ctx(wrapper_dft->ctx);
+        spec_params.cparams_dft.n_batch         = llama_n_batch(wrapper_dft->ctx);
+        spec_params.cparams_dft.n_threads       = llama_n_threads(wrapper_dft->ctx);
+        spec_params.cparams_dft.n_threads_batch = llama_n_threads_batch(wrapper_dft->ctx);
 
         // Initialize speculative sampling
         common_speculative* spec = common_speculative_init(spec_params, wrapper_tgt->ctx);

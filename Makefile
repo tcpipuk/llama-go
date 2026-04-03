@@ -259,15 +259,20 @@ else
 	cp build/bin/libggml.so .
 	cp build/bin/libggml-base.so .
 	cp build/bin/libggml-cpu.so .
+	ln -sf libllama.so libllama.so.0
+	ln -sf libggml.so libggml.so.0
+	ln -sf libggml-base.so libggml-base.so.0
+	ln -sf libggml-cpu.so libggml-cpu.so.0
 ifeq ($(BUILD_TYPE),cublas)
 	cp build/bin/libggml-cuda.so .
+	ln -sf libggml-cuda.so libggml-cuda.so.0
 endif
 endif
 
 clean:
 	rm -rf *.o
 	rm -rf *.a
-	rm -rf *.so
+	rm -rf *.so *.so.0
 	rm -rf llama.cpp/*.o
 	cd llama.cpp && git checkout -- . && git clean -fd
 	rm -rf build
