@@ -101,11 +101,16 @@ docker run --rm -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:bu
 docker run --rm -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda \
   "go run ./examples/embedding -m Qwen3-Embedding-0.6B-Q8_0.gguf -t 'Hello world'"
 
-# Run test suite with test model (tests inference, speculative sampling, tokenisation)
-# Use build-cuda container which includes correct CUDA drivers and Go version
+# Run test suite with test models
+# TEST_MODEL is used by speculative decoding tests
+# TEST_CHAT_MODEL is used by generation, streaming, chat, and stop word tests
+# TEST_EMBEDDING_MODEL is used by embedding tests
 # Limit to 8 CPUs to avoid monopolising shared server resources
 docker run --rm --gpus all --cpus=8 -v $(pwd):/workspace -w /workspace \
-  -e TEST_MODEL=Qwen3-0.6B-Q8_0.gguf -e LLAMA_LOG=error \
+  -e TEST_MODEL=Qwen3-0.6B-Q8_0.gguf \
+  -e TEST_CHAT_MODEL=Qwen3-0.6B-Q8_0.gguf \
+  -e TEST_EMBEDDING_MODEL=Qwen3-Embedding-0.6B-Q8_0.gguf \
+  -e LLAMA_LOG=error \
   git.tomfos.tr/tom/llama-go:build-cuda \
   "go run github.com/onsi/ginkgo/v2/ginkgo -v ./..."
 ```
