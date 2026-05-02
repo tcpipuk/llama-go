@@ -58,7 +58,7 @@ repos:
 
       - id: golangci-lint
         name: golangci-lint
-        entry: sh -c 'docker run --rm -v $(pwd):/workspace -w /workspace golang:1.26.1-trixie bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \$(go env GOPATH)/bin/golangci-lint run"'
+        entry: sh -c 'docker run --rm -v $(pwd):/workspace -w /workspace golang:1.26.2-trixie bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \$(go env GOPATH)/bin/golangci-lint run"'
         language: system
         types: [go]
         pass_filenames: false

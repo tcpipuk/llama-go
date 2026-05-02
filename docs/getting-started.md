@@ -37,13 +37,15 @@ docker run --rm -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:bu
   bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace make libbinding.a"
 ```
 
-This creates several files:
+This creates several static archive files (default linkage):
 
 - `libbinding.a` - The main library for Go
-- `libllama.so`, `libggml.so`, etc. - Shared libraries needed at runtime
-- `libcommon.a` - Common utilities
+- `libllama.a`, `libllama-common.a`, `libllama-common-base.a` - llama.cpp libraries
+- `libggml.a`, `libggml-base.a`, `libggml-cpu.a` - ggml libraries
+- For GPU backends (e.g. `BUILD_TYPE=cublas`): a backend-specific archive like `libggml-cuda.a`
 
-The build process typically takes 2-5 minutes depending on your system.
+The build process typically takes 2-5 minutes depending on your system. To build with shared
+libraries instead (`.so` files alongside the binary), pass `BUILD_LINKAGE=shared` to make.
 
 ## Step 3: Download a test model
 
@@ -63,7 +65,7 @@ Now test the installation with a simple question:
 
 ```bash
 docker run --rm -v $(pwd):/workspace -w /workspace golang:latest \
-  bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace LD_LIBRARY_PATH=/workspace \
+  bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace \
            go run ./examples -m Qwen3-0.6B-Q8_0.gguf \
            -p 'What is the capital of France?' -n 50"
 ```
@@ -78,13 +80,18 @@ The inference should complete in under a minute on most systems.
 
 ## Understanding the environment variables
 
-The library requires three environment variables:
+The library requires two environment variables at build time:
 
-- `LIBRARY_PATH`: Tells the Go compiler where to find the static library
+- `LIBRARY_PATH`: Tells the Go compiler where to find the static archives
 - `C_INCLUDE_PATH`: Tells the compiler where to find header files
-- `LD_LIBRARY_PATH`: Tells the runtime where to find shared libraries
 
 Without these, you'll see "undefined symbol" or "library not found" errors.
+
+`LD_LIBRARY_PATH` is **not** required:
+
+- In the default static linkage mode, everything is linked into the binary at build time
+- In shared linkage mode (`BUILD_LINKAGE=shared`), `-Wl,-rpath,$ORIGIN` is baked into the
+  binary so it finds `.so` files relative to the executable
 
 ## Interactive mode
 
@@ -92,7 +99,7 @@ You can also run the example in interactive mode by omitting the `-p` parameter:
 
 ```bash
 docker run --rm -it -v $(pwd):/workspace -w /workspace golang:latest \
-  bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace LD_LIBRARY_PATH=/workspace \
+  bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace \
            go run ./examples -m Qwen3-0.6B-Q8_0.gguf"
 ```
 
@@ -110,16 +117,19 @@ This starts an interactive session where you can type prompts and see responses 
 
 - Make sure you're in the correct directory and the submodules are initialised
 
-**Missing `.so` files after build**
+**Missing artefacts after build**
 
+- Default static mode produces `.a` files (`libbinding.a`, `libllama-common.a`, `libggml*.a` etc.)
+- Shared mode (`BUILD_LINKAGE=shared`) produces `.so` files instead
 - Check that the build completed successfully and didn't exit early due to errors
 
 ### Runtime issues
 
-**"undefined symbol" errors**
+**"undefined symbol" errors at link time**
 
-- Ensure `LD_LIBRARY_PATH` includes the directory containing the `.so` files
-- Verify the shared libraries exist in your project directory
+- Ensure you set `LIBRARY_PATH` and `C_INCLUDE_PATH` to the workspace directory
+- Verify the static archives (or `.so` files in shared mode) exist in your project directory
+- For shared mode, ensure you pass `-tags shared_lib` to `go build`
 
 **"failed to load model"**
 
@@ -204,12 +214,15 @@ Now that the library works, here's how to integrate it into your Go application:
 3. **Build your application** with the same environment variables:
 
    ```bash
-   export LIBRARY_PATH=$PWD C_INCLUDE_PATH=$PWD LD_LIBRARY_PATH=$PWD
+   export LIBRARY_PATH=$PWD C_INCLUDE_PATH=$PWD
    go build -o myapp
    ```
 
-4. **Distribute the shared libraries** (`.so` files) alongside your binary - see the
-   [building guide](building.md#distributing-your-application) for deployment details.
+4. **Distribute your application**: in the default static mode, the binary is self-contained
+   for the llama.cpp side — no `.so` files needed alongside it. (Backend runtimes like the
+   CUDA driver or NCCL still need to be installed on the target system, of course.) If you
+   built with `BUILD_LINKAGE=shared`, the `.so` files need to sit next to the binary. See
+   the [building guide](building.md#distributing-your-application) for deployment details.
 
 The [API guide](api-guide.md) shows common patterns like streaming, chat completion, embeddings,
 concurrent inference, and speculative decoding. For hardware acceleration, see the

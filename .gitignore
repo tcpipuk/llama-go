@@ -3,9 +3,13 @@
 /build
 /ggml-metal.metal
 prepare
+wrapper.o
 
-# static libraries
-libbinding*.a
+# build artefacts (static and shared)
+lib*.a
+lib*.so
+lib*.so.*
+lib*.dylib
 
 # build output directories
 /build-output

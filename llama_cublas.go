@@ -8,10 +8,13 @@
 // Build with: go build -tags cublas
 //
 // Requires CUDA toolkit installed with cuBLAS and CUDA runtime libraries.
+//
+// CGO LDFLAGS for this backend live in linkage-specific siblings:
+//   - llama_cublas_static.go (built when -tags cublas, default linkage)
+//   - llama_cublas_shared.go (built when -tags "cublas shared_lib")
 package llama
 
 /*
 #cgo CPPFLAGS: -DGGML_USE_CUDA
-#cgo LDFLAGS: -lggml-cuda -lcublas -lcudart -L/usr/local/cuda/lib64/
 */
 import "C"

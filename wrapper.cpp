@@ -656,21 +656,27 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
             return nullptr;
         }
 
-        // Set up speculative parameters
-        // Since b8635, common_speculative_init creates its own draft context internally
-        // from the model pointer, so we pass the draft model rather than a pre-created context
+        // Set up speculative parameters.
+        // b9002+: common_params_speculative uses a nested draft substructure
+        // (params.draft.* instead of the flat fields used pre-b9002).
+        // common_speculative_init checks !params.draft.mparams.path.empty() to
+        // decide whether the draft implementation should be registered, so the
+        // path field must be set even though we're passing the model directly.
         common_params_speculative spec_params;
-        spec_params.n_max = params.n_draft > 0 ? params.n_draft : 16;
-        spec_params.p_min = 0.75f;
         spec_params.type = COMMON_SPECULATIVE_TYPE_DRAFT;
-        spec_params.model_dft = wrapper_dft->model;
-        spec_params.mparams_dft.path = "draft";
 
-        spec_params.cparams_dft = llama_context_default_params();
-        spec_params.cparams_dft.n_ctx           = llama_n_ctx(wrapper_dft->ctx);
-        spec_params.cparams_dft.n_batch         = llama_n_batch(wrapper_dft->ctx);
-        spec_params.cparams_dft.n_threads       = llama_n_threads(wrapper_dft->ctx);
-        spec_params.cparams_dft.n_threads_batch = llama_n_threads_batch(wrapper_dft->ctx);
+        // Configure draft model parameters
+        spec_params.draft.n_max = params.n_draft > 0 ? params.n_draft : 16;
+        spec_params.draft.p_min = 0.75f;
+        spec_params.draft.model = wrapper_dft->model;
+        spec_params.draft.mparams.path = "draft";
+
+        // Draft context parameters
+        spec_params.draft.cparams = llama_context_default_params();
+        spec_params.draft.cparams.n_ctx           = llama_n_ctx(wrapper_dft->ctx);
+        spec_params.draft.cparams.n_batch         = llama_n_batch(wrapper_dft->ctx);
+        spec_params.draft.cparams.n_threads       = llama_n_threads(wrapper_dft->ctx);
+        spec_params.draft.cparams.n_threads_batch = llama_n_threads_batch(wrapper_dft->ctx);
 
         // Initialize speculative sampling
         common_speculative* spec = common_speculative_init(spec_params, wrapper_tgt->ctx);

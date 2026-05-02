@@ -77,13 +77,14 @@ Build and test the updated bindings:
 # Verify no existing build artifacts
 ls -la libbinding.a 2>/dev/null  # Should return nothing
 
-# Build with Docker for consistent environment (expect 20-25 minutes with FA_ALL_QUANTS enabled)
+# Build with Docker for consistent environment (expect 20-25 minutes with FA_ALL_QUANTS enabled).
+# Default linkage is static (single-binary friendly); no LD_LIBRARY_PATH gymnastics needed.
 docker run --rm -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda \
-  "make libbinding.a"
+  "BUILD_TYPE=cublas CUDA_ARCHITECTURES=86 make libbinding.a"
 
-# Verify build created all artifacts
-ls -la libbinding.a libcommon.a *.so
-ls -lat *.a *.so | head -10  # Check timestamps confirm fresh build
+# Verify build created all artifacts (static mode -> .a files in workspace root)
+ls -la libbinding.a libllama-common.a libllama-common-base.a libllama.a libggml*.a
+ls -lat *.a | head -10  # Check timestamps confirm fresh build
 
 # Download test models if not present
 ls -la Qwen3-0.6B-Q8_0.gguf 2>/dev/null || \
@@ -93,13 +94,13 @@ ls -la Qwen3-0.6B-Q8_0.gguf 2>/dev/null || \
 ls -la Qwen3-Embedding-0.6B-Q8_0.gguf 2>/dev/null || \
   wget -q https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf
 
-# Test inference pipeline
-docker run --rm -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda \
-  "go run ./examples/simple -m Qwen3-0.6B-Q8_0.gguf -p 'Hello world' -n 50"
+# Test inference pipeline. -tags cublas pulls in the CUDA backend's CGO LDFLAGS.
+docker run --rm --gpus all -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda \
+  "go run -tags cublas ./examples/simple -m Qwen3-0.6B-Q8_0.gguf -p 'Hello world' -n 50"
 
 # Test embedding functionality
-docker run --rm -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda \
-  "go run ./examples/embedding -m Qwen3-Embedding-0.6B-Q8_0.gguf -t 'Hello world'"
+docker run --rm --gpus all -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda \
+  "go run -tags cublas ./examples/embedding -m Qwen3-Embedding-0.6B-Q8_0.gguf -t 'Hello world'"
 
 # Run test suite with test models
 # TEST_MODEL is used by speculative decoding tests
@@ -112,7 +113,30 @@ docker run --rm --gpus all --cpus=8 -v $(pwd):/workspace -w /workspace \
   -e TEST_EMBEDDING_MODEL=Qwen3-Embedding-0.6B-Q8_0.gguf \
   -e LLAMA_LOG=error \
   git.tomfos.tr/tom/llama-go:build-cuda \
-  "go run github.com/onsi/ginkgo/v2/ginkgo -v ./..."
+  "go run github.com/onsi/ginkgo/v2/ginkgo -tags cublas -v ./..."
+```
+
+#### Validating shared linkage (release-time only)
+
+The default static path is exercised every PR via CI. The opt-in shared path
+should be verified before tagging a release, since it isn't on the per-PR loop.
+
+```bash
+# Clean rebuild in shared mode (full 20-25 min — cmake reconfigure required)
+docker run --rm -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda \
+  "make clean && BUILD_TYPE=cublas CUDA_ARCHITECTURES=86 BUILD_LINKAGE=shared make libbinding.a"
+
+# Should now have .so files instead of .a files in the workspace
+ls -la *.so
+
+# Run the suite with the shared_lib build tag
+docker run --rm --gpus all --cpus=8 -v $(pwd):/workspace -w /workspace \
+  -e TEST_MODEL=Qwen3-0.6B-Q8_0.gguf \
+  -e TEST_CHAT_MODEL=Qwen3-0.6B-Q8_0.gguf \
+  -e TEST_EMBEDDING_MODEL=Qwen3-Embedding-0.6B-Q8_0.gguf \
+  -e LLAMA_LOG=error \
+  git.tomfos.tr/tom/llama-go:build-cuda \
+  "go run github.com/onsi/ginkgo/v2/ginkgo -tags 'cublas shared_lib' -v ./..."
 ```
 
 **Verification**: All commands must complete successfully with expected output before proceeding.
@@ -152,9 +176,9 @@ For projects requiring GPU acceleration, test CUDA support:
               tar -C /usr/local -xzf go1.25.1.linux-amd64.tar.gz && \
               export PATH=/usr/local/go/bin:\$PATH && \
               cd /workspace && \
-              LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace LD_LIBRARY_PATH=/workspace \
+              LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace \
               TEST_MODEL=Qwen3-0.6B-Q8_0.gguf \
-              go run github.com/onsi/ginkgo/v2/ginkgo --label-filter='gpu' -v ./..."
+              go run github.com/onsi/ginkgo/v2/ginkgo -tags cublas --label-filter='gpu' -v ./..."
    ```
 
 **Expected output**:
@@ -298,11 +322,13 @@ Before tagging a release, verify:
 - [ ] No `.a`, `.so`, or `.o` files present before build
 - [ ] Submodule updated to target llama.cpp release
 - [ ] Submodule has no local modifications (clean checkout)
-- [ ] Library builds successfully with Docker containers
+- [ ] Library builds successfully with Docker containers (default static linkage)
 - [ ] All expected artifacts created with fresh timestamps
 - [ ] Example program loads test model without errors
 - [ ] Text generation produces reasonable output
-- [ ] Test suite passes without failures
+- [ ] Static-mode test suite passes without failures (`-tags cublas`)
+- [ ] **Shared-mode test suite passes** (`BUILD_LINKAGE=shared` build,
+      `-tags 'cublas shared_lib'`) — opt-in path verified before tag
 - [ ] No obvious API compatibility warnings or errors
 - [ ] Commit shows clean submodule pointer update (no "-dirty" suffix)
 - [ ] Commit includes clear description of changes made
