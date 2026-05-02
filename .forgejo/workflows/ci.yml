@@ -96,3 +96,61 @@ jobs:
       - name: Run example
         run: |
           go run -tags cublas ./examples/simple -m Qwen3-0.6B-Q8_0.gguf -p 'Hello world' -n 50
+
+      - name: Upload static artifacts for libs-image job
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: https://github.com/actions/upload-artifact@v4
+        with:
+          name: llama-go-static-libs
+          path: |
+            libbinding.a
+            libllama.a
+            libllama-common.a
+            libllama-common-base.a
+            libggml.a
+            libggml-base.a
+            libggml-cpu.a
+            libggml-cuda.a
+            wrapper.h
+          retention-days: 1
+
+  libs-image:
+    needs: [test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts from test job
+        uses: https://github.com/actions/download-artifact@v4
+        with:
+          name: llama-go-static-libs
+          path: .
+
+      - name: Add Dockerfile to context
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            Dockerfile.libs-cuda
+          sparse-checkout-cone-mode: false
+          path: .checkout
+      - run: cp .checkout/Dockerfile.libs-cuda . && rm -rf .checkout
+
+      - name: Set up Docker Buildx
+        uses: https://github.com/docker/setup-buildx-action@v3
+        with:
+          driver: ${{ env.BUILDKIT_ENDPOINT != '' && 'remote' || 'docker-container' }}
+          endpoint: ${{ env.BUILDKIT_ENDPOINT || '' }}
+
+      - name: Login to Forgejo Registry
+        uses: https://github.com/docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.FORGEJO_TOKEN }}
+
+      - name: Build and push libs-cuda image
+        uses: https://github.com/docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.libs-cuda
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ github.event.repository.name }}:libs-cuda
