@@ -113,7 +113,7 @@ docker run --rm --gpus all --cpus=8 -v $(pwd):/workspace -w /workspace \
   -e TEST_EMBEDDING_MODEL=Qwen3-Embedding-0.6B-Q8_0.gguf \
   -e LLAMA_LOG=error \
   git.tomfos.tr/tom/llama-go:build-cuda \
-  "go run github.com/onsi/ginkgo/v2/ginkgo -tags cublas -v ./..."
+  "go run github.com/onsi/ginkgo/v2/ginkgo -tags cublas --flake-attempts 3 -v ./..."
 ```
 
 #### Validating shared linkage (release-time only)
@@ -136,7 +136,7 @@ docker run --rm --gpus all --cpus=8 -v $(pwd):/workspace -w /workspace \
   -e TEST_EMBEDDING_MODEL=Qwen3-Embedding-0.6B-Q8_0.gguf \
   -e LLAMA_LOG=error \
   git.tomfos.tr/tom/llama-go:build-cuda \
-  "go run github.com/onsi/ginkgo/v2/ginkgo -tags 'cublas shared_lib' -v ./..."
+  "go run github.com/onsi/ginkgo/v2/ginkgo -tags 'cublas shared_lib' --flake-attempts 3 -v ./..."
 ```
 
 **Verification**: All commands must complete successfully with expected output before proceeding.

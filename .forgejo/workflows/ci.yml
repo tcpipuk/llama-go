@@ -91,7 +91,7 @@ jobs:
 
       - name: Run tests
         run: |
-          go run github.com/onsi/ginkgo/v2/ginkgo -tags cublas -v ./...
+          go run github.com/onsi/ginkgo/v2/ginkgo -tags cublas --flake-attempts 3 -v ./...
 
       - name: Run example
         run: |

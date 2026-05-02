@@ -150,7 +150,7 @@ var _ = Describe("GPU Layer Configuration", Label("gpu-layers"), func() {
 	})
 
 	Context("performance comparison", func() {
-		It("should be faster with GPU offloading than CPU-only", Label("integration", "gpu"), func() {
+		It("should be faster with GPU offloading than CPU-only", Serial, Label("integration", "gpu"), func() {
 			var err error
 			var cpuCtx, gpuCtx *llama.Context
 
@@ -193,7 +193,7 @@ var _ = Describe("GPU Layer Configuration", Label("gpu-layers"), func() {
 				"GPU should be at least 2x faster than CPU-only")
 		})
 
-		It("should show progressive performance improvement with more GPU layers", Label("integration", "gpu", "slow"), func() {
+		It("should show progressive performance improvement with more GPU layers", Serial, Label("integration", "gpu", "slow"), func() {
 			prompt := "Test prompt"
 			maxTokens := 10
 			var err error
