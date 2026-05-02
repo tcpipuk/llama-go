@@ -13,7 +13,8 @@ typedef bool (*llama_progress_callback_wrapper)(float progress, void* user_data)
 // Model parameters for loading
 typedef struct {
     int n_ctx;              // Context size
-    int n_batch;            // Batch size
+    int n_batch;            // Batch size (logical)
+    int n_ubatch;           // Micro-batch size (physical); 0 = match n_batch
     int n_gpu_layers;       // Number of GPU layers
     int n_threads;          // Number of threads for generation (per token)
     int n_threads_batch;    // Number of threads for batch processing (prompt)

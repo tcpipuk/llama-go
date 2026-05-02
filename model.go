@@ -137,6 +137,7 @@ func LoadModel(path string, opts ...ModelOption) (*Model, error) {
 	params := C.llama_wrapper_model_params{
 		n_ctx:           0, // Not used for model loading
 		n_batch:         0, // Not used for model loading
+		n_ubatch:        0, // Not used for model loading
 		n_gpu_layers:    C.int(config.gpuLayers),
 		n_threads:       0, // Not used for model loading
 		n_threads_batch: 0, // Not used for model loading
@@ -272,6 +273,7 @@ func (m *Model) NewContext(opts ...ContextOption) (*Context, error) {
 	params := C.llama_wrapper_model_params{
 		n_ctx:           C.int(config.contextSize),
 		n_batch:         C.int(config.batchSize),
+		n_ubatch:        C.int(config.uBatchSize),
 		n_gpu_layers:    0, // Not used for context creation (model already loaded)
 		n_threads:       C.int(config.threads),
 		n_threads_batch: C.int(config.threadsBatch),
