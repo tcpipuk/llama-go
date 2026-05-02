@@ -52,6 +52,36 @@ func WithBatch(size int) ContextOption {
 	}
 }
 
+// WithUBatch sets the physical (micro) batch size used for a single forward pass.
+//
+// llama.cpp distinguishes between the logical batch (n_batch — how many tokens may
+// queue before a flush) and the physical batch (n_ubatch — how many tokens are
+// actually processed in one forward pass through the GPU). For most decoder models
+// the default ubatch (which matches batch when unset) is fine.
+//
+// Encoder-only models (e.g. nomic-embed-text, BERT-family embedding models) require
+// n_ubatch >= n_tokens for any single sequence — the entire input must fit in one
+// forward pass. If you embed sequences longer than the default 512 tokens with such
+// a model, set WithUBatch to at least your longest expected sequence length, or
+// llama.cpp will abort with "encoder requires n_ubatch >= n_tokens".
+//
+// Default: 0 (matches batch size)
+//
+// Example:
+//
+//	// Embed long documents with a nomic encoder model.
+//	ctx, err := model.NewContext(
+//	    llama.WithEmbeddings(),
+//	    llama.WithContext(8192),
+//	    llama.WithBatch(8192),
+//	    llama.WithUBatch(8192),
+//	)
+func WithUBatch(size int) ContextOption {
+	return func(c *contextConfig) {
+		c.uBatchSize = size
+	}
+}
+
 // WithThreads sets the number of threads for token generation.
 // If not specified, defaults to runtime.NumCPU().
 // This also sets threadsBatch to the same value unless WithThreadsBatch is used.
@@ -262,6 +292,7 @@ func WithPrefixCaching(enabled bool) ContextOption {
 // Default values set in defaultContextConfig:
 // - contextSize: 0 (use model's native max)
 // - batchSize: 512
+// - uBatchSize: 0 (matches batchSize)
 // - threads: runtime.NumCPU()
 // - threadsBatch: 0 (same as threads)
 // - nParallel: 1 (8 for embeddings)

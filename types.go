@@ -8,6 +8,7 @@ import (
 type contextConfig struct {
 	contextSize   int
 	batchSize     int
+	uBatchSize    int // Physical micro-batch size; 0 means match batchSize
 	threads       int
 	threadsBatch  int
 	nParallel     int // Number of parallel sequences (for batch embeddings)
@@ -72,6 +73,7 @@ type generateConfig struct {
 var defaultContextConfig = contextConfig{
 	contextSize:   0, // 0 = use model's native maximum (queried after load)
 	batchSize:     512,
+	uBatchSize:    0, // 0 = match batchSize (set by wrapper)
 	threads:       runtime.NumCPU(),
 	threadsBatch:  0, // 0 means use same as threads (set in wrapper)
 	nParallel:     1, // 1 for generation, auto-set higher for embeddings
