@@ -5,7 +5,7 @@ go 1.26.2
 require (
 	github.com/onsi/ginkgo/v2 v2.25.3
 	github.com/onsi/gomega v1.38.2
-	golang.org/x/term v0.41.0
+	golang.org/x/term v0.42.0
 )
 
 require (

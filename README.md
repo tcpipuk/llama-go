@@ -31,14 +31,14 @@ PyTorch and/or vLLM.
 git clone --recurse-submodules https://github.com/tcpipuk/llama-go
 cd llama-go
 
-# Build the library
+# Build the library (default: static linkage, single-binary friendly)
 make libbinding.a
 
 # Download a test model
 wget https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf
 
 # Run an example
-export LIBRARY_PATH=$PWD C_INCLUDE_PATH=$PWD LD_LIBRARY_PATH=$PWD
+export LIBRARY_PATH=$PWD C_INCLUDE_PATH=$PWD
 go run ./examples/simple -m Qwen3-0.6B-Q8_0.gguf -p "Hello world" -n 50
 ```
 
@@ -99,8 +99,14 @@ func main() {
 When building, set these environment variables:
 
 ```bash
-export LIBRARY_PATH=$PWD C_INCLUDE_PATH=$PWD LD_LIBRARY_PATH=$PWD
+export LIBRARY_PATH=$PWD C_INCLUDE_PATH=$PWD
 ```
+
+The default static linkage links every llama.cpp library directly into your Go binary —
+no `LD_LIBRARY_PATH` setup, no shared libraries to ship alongside the executable. If you'd
+rather use shared libraries, build with `BUILD_LINKAGE=shared make libbinding.a` and pass
+`-tags shared_lib` to `go build`; the shared mode bakes `-Wl,-rpath,$ORIGIN` into the binary
+so the `.so` files only need to sit next to the executable.
 
 ## Key capabilities
 

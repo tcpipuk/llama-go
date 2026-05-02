@@ -60,100 +60,127 @@ make libbinding.a
 
 ## Build output
 
-The build process creates several files:
+The build process creates a set of artefacts in the workspace root. Which type depends on
+the linkage mode (see next section).
 
-**Static libraries:**
+**Static linkage (default, `BUILD_LINKAGE=static`)** — produces `.a` archives:
 
 - `libbinding.a` - Main static library for Go linking (contains wrapper.o)
-- `libcommon.a` - Common utilities
+- `libllama-common.a`, `libllama-common-base.a` - llama.cpp common utilities
+- `libllama.a` - llama.cpp core
+- `libggml.a`, `libggml-base.a`, `libggml-cpu.a` - ggml libraries
+- For GPU backends: a backend-specific archive (e.g. `libggml-cuda.a` for CUDA)
 
-**Shared libraries:**
+**Shared linkage (`BUILD_LINKAGE=shared`)** — produces `.so` files instead, with the same
+naming pattern (e.g. `libllama-common.so`, `libllama.so`, `libggml-cuda.so`).
 
-- `libllama.so` - LLaMA model operations
-- `libggml.so` - GGML tensor operations
-- `libggml-base.so` - Base GGML functionality
-- `libggml-cpu.so` - CPU-specific operations
+## Linkage modes
 
-## Linking options
+The build supports two linkage modes, controlled by the `BUILD_LINKAGE` Makefile variable.
+Both are first-class options — pick based on your deployment needs.
 
-You need to decide how to link the llama.cpp libraries into your application. Both approaches are
-equally valid - choose based on your deployment needs.
+### Static (default)
 
-### Dynamic linking (default)
-
-The default build creates shared libraries that load at runtime. Your Go binary includes the
-static wrapper libraries (`libbinding.a`, `libcommon.a`) whilst the llama.cpp components remain
-as separate `.so` files.
+Static archives get linked into your Go binary at build time. The result is a single
+self-contained executable for the llama.cpp side; nothing needs to ship alongside it.
 
 **When to use:**
 
-- You want smaller binaries
-- You're comfortable managing library paths
-- You might update llama.cpp independently
+- You want single-binary deployment (containers, embedded, distribution)
+- You don't want to manage library paths or rpath at runtime
+- You're integrating llama-go into another Go binary that needs to stay portable
 
-**Building:** Use the standard build commands shown above.
+**Building:**
+
+```bash
+make libbinding.a   # BUILD_LINKAGE=static is implicit
+```
+
+**Building Go consumers:**
+
+```bash
+go build              # default — pulls in linkage_static.go automatically
+go build -tags cublas # for CUDA-enabled builds (or other backends)
+```
 
 **What you ship:**
 
-- Your application binary (~10-20MB)
-- The `.so` files listed above
+- Your application binary (50-200MB depending on backend; CUDA archives are large)
 - Model files
+- Backend system libraries (CUDA toolkit, NCCL etc.) if your backend needs them — these
+  are dynamically loaded from the system, not bundled
 
-### Static linking
+### Shared
 
-Build llama.cpp as static libraries to create a single self-contained binary. Modify the CMake
-build to pass `-DBUILD_SHARED_LIBS=OFF` in the Makefile.
+Shared libraries (`.so` files on Linux, `.dylib` on macOS) sit next to the binary and are
+loaded at runtime. The linker bakes `-Wl,-rpath,$ORIGIN` into the binary so the `.so` files
+only need to be in the same directory — no `LD_LIBRARY_PATH` required.
 
 **When to use:**
 
-- You want single-binary deployment
-- You're deploying to containers
-- You want to avoid library path configuration
+- You want a smaller binary at the cost of shipping multiple files
+- You want to swap out specific backend libraries without recompiling everything
+- You're updating llama.cpp components independently of your application
 
-**Building:** Modify the Makefile's CMake configuration to include `-DBUILD_SHARED_LIBS=OFF`.
+**Building:**
+
+```bash
+BUILD_LINKAGE=shared make libbinding.a
+```
+
+**Building Go consumers:**
+
+```bash
+go build -tags shared_lib                # default backend
+go build -tags 'cublas shared_lib'       # CUDA + shared
+```
+
+The `shared_lib` tag pulls in the shared-mode CGO LDFLAGS (which include the rpath directive).
 
 **What you ship:**
 
-- Your application binary (30-100MB depending on acceleration)
+- Your application binary
+- All `.so` files from the workspace root, in the same directory as the binary
 - Model files
+- Backend system libraries (as for static mode)
 
 ## Distributing your application
 
-### With dynamic linking
+### Static linkage
 
-Users need the `.so` files accessible at runtime:
+No runtime configuration needed — just run your binary. The only external dependencies are
+backend system libraries (e.g. CUDA toolkit), which the user must have installed.
 
 ```bash
-# Option 1: Set LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=/path/to/lib:$LD_LIBRARY_PATH
-./your-app
-
-# Option 2: Install to system library directory
-sudo cp *.so /usr/local/lib/
-sudo ldconfig
 ./your-app
 ```
 
-**Docker deployment:**
+**Docker deployment (static):**
 
 ```dockerfile
-FROM golang:1.25 as builder
-WORKDIR /build
-# ... build your application ...
-
-FROM debian:stable-slim
-COPY --from=builder /build/your-app /app/
-COPY --from=builder /build/*.so /usr/local/lib/
-RUN ldconfig
+FROM nvidia/cuda:12.4.1-runtime-ubuntu24.04
+COPY your-app /app/
+COPY model.gguf /app/
 CMD ["/app/your-app"]
 ```
 
-### With static linking
+### Shared linkage
 
-No runtime configuration needed - just run your binary:
+Distribute the `.so` files alongside your binary. They must end up in the same directory
+as the executable so `$ORIGIN` rpath resolution finds them.
 
 ```bash
-./your-app
+./your-app   # finds libllama-common.so etc next to itself, no env vars needed
+```
+
+**Docker deployment (shared):**
+
+```dockerfile
+FROM nvidia/cuda:12.4.1-runtime-ubuntu24.04
+COPY your-app /app/
+COPY *.so* /app/
+COPY model.gguf /app/
+CMD ["/app/your-app"]
 ```
 
 ## Hardware acceleration
@@ -176,32 +203,42 @@ ctx, _ := model.NewContext(llama.WithContext(2048))
 defer ctx.Close()
 ```
 
-| Backend | Build command | CGO flags | Notes |
-|---------|---------------|-----------|-------|
-| CUDA | `BUILD_TYPE=cublas make libbinding.a` | `-lcublas -lcudart -L/usr/local/cuda/lib64/` | NVIDIA GPUs |
-| Metal | `BUILD_TYPE=metal make libbinding.a` | `-framework Foundation -framework Metal -framework MetalKit -framework MetalPerformanceShaders` | Apple Silicon |
-| OpenBLAS | `BUILD_TYPE=openblas make libbinding.a` | `-lopenblas` | CPU acceleration |
-| OpenCL | `BUILD_TYPE=opencl make libbinding.a` | `-lOpenCL` (Linux), `-framework OpenCL` (macOS) | Broad compatibility including mobile GPUs |
-| RPC | `BUILD_TYPE=rpc make libbinding.a` | `-lpthread` | Distributed inference across machines |
-| ROCm | `BUILD_TYPE=hipblas make libbinding.a` | `-O3 --hip-link --rtlib=compiler-rt -unwindlib=libgcc -lrocblas -lhipblas` | AMD GPUs, requires ROCm compilers |
-| SYCL | `BUILD_TYPE=sycl make libbinding.a` | `-lsycl -L/opt/intel/oneapi/compiler/latest/linux/lib` | Intel Arc/Xe GPUs, optional NVIDIA/AMD |
-| Vulkan | `BUILD_TYPE=vulkan make libbinding.a` | `-lvulkan -L/usr/lib/x86_64-linux-gnu` | Cross-platform GPU (NVIDIA, AMD, Intel, ARM) |
+Each backend is enabled by setting `BUILD_TYPE` at build time and passing the corresponding
+Go build tag to `go build`. The CGO LDFLAGS for each backend are now wired up inside
+per-backend Go files (`llama_<backend>.go` and, for CUDA, `llama_cublas_static.go` /
+`llama_cublas_shared.go`) so consumers don't need to pass them via `CGO_LDFLAGS`.
+
+| Backend | Build command | Go build tag | Notes |
+| --- | --- | --- | --- |
+| CUDA | `BUILD_TYPE=cublas CUDA_ARCHITECTURES=86 make libbinding.a` | `-tags cublas` | NVIDIA GPUs. Static archive ~280MB; shared `.so` is much smaller. Both modes link `libcudart`, `libcublas`, `libcuda`, `libnccl` from the system. |
+| Metal | `BUILD_TYPE=metal make libbinding.a` | `-tags metal` | Apple Silicon. Build links Metal/MetalKit/Foundation frameworks via `CGO_LDFLAGS` set in the Makefile. |
+| OpenBLAS | `BUILD_TYPE=openblas make libbinding.a` | `-tags openblas` | CPU acceleration. Always uses system shared `libopenblas`. |
+| OpenCL | `BUILD_TYPE=opencl make libbinding.a` | `-tags opencl` | Broad compatibility including mobile GPUs. |
+| RPC | `BUILD_TYPE=rpc make libbinding.a` | `-tags rpc` | Distributed inference across machines. |
+| ROCm | `BUILD_TYPE=hipblas make libbinding.a` | `-tags hipblas` | AMD GPUs, requires ROCm compilers. |
+| SYCL | `BUILD_TYPE=sycl make libbinding.a` | `-tags sycl` | Intel Arc/Xe GPUs, optional NVIDIA/AMD. |
+| Vulkan | `BUILD_TYPE=vulkan make libbinding.a` | `-tags vulkan` | Cross-platform GPU (NVIDIA, AMD, Intel, ARM). |
+
+For shared linkage, append `shared_lib` to the build tag list (e.g. `-tags 'cublas shared_lib'`).
+The CUDA backend's static-mode CGO LDFLAGS are explicit (`-lcudart -lcublas -lcuda -lnccl`)
+because static archives don't carry their own dependency information; shared mode gets these
+transitively via `libggml-cuda.so`'s NEEDED entries.
 
 ### CUDA acceleration example
 
-Build with CUDA support:
+Build with CUDA support (default static linkage):
 
 ```bash
-docker run --rm --gpus all -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda \
-  bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace make libbinding.a"
+docker run --rm -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda \
+  bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace BUILD_TYPE=cublas CUDA_ARCHITECTURES=86 make libbinding.a"
 ```
 
-Run with CUDA libraries:
+Run, passing `-tags cublas` to enable the CUDA build tag:
 
 ```bash
 docker run --rm --gpus all -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda \
-  bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace LD_LIBRARY_PATH=/workspace \
-           go run ./examples -m /path/to/model.gguf -p 'Hello world' -n 50"
+  bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace \
+           go run -tags cublas ./examples -m /path/to/model.gguf -p 'Hello world' -n 50"
 ```
 
 ### OpenBLAS acceleration example
@@ -213,11 +250,10 @@ For CPU acceleration without GPU hardware:
 docker run --rm -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda \
   bash -c "BUILD_TYPE=openblas LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace make libbinding.a"
 
-# Run with OpenBLAS
+# Run with OpenBLAS — the openblas build tag activates `#cgo LDFLAGS: -lopenblas`
 docker run --rm -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda \
-  bash -c "CGO_LDFLAGS='-lopenblas' \
-           LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace LD_LIBRARY_PATH=/workspace \
-           go run ./examples -m /path/to/model.gguf -p 'Hello world' -n 50"
+  bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace \
+           go run -tags openblas ./examples -m /path/to/model.gguf -p 'Hello world' -n 50"
 ```
 
 ### Metal acceleration (Apple Silicon)
@@ -232,8 +268,8 @@ cp build/bin/ggml-metal.metal .
 
 # Run with Metal frameworks
 CGO_LDFLAGS="-framework Foundation -framework Metal -framework MetalKit -framework MetalPerformanceShaders" \
-  LIBRARY_PATH=$PWD C_INCLUDE_PATH=$PWD LD_LIBRARY_PATH=$PWD \
-  go run ./examples -m /path/to/model.gguf -p "Hello world" -n 50
+  LIBRARY_PATH=$PWD C_INCLUDE_PATH=$PWD \
+  go run -tags metal ./examples -m /path/to/model.gguf -p "Hello world" -n 50
 ```
 
 ## Multi-architecture builds
@@ -259,10 +295,15 @@ amd64).
 ## Environment variables
 
 ```bash
-export LIBRARY_PATH=$PWD        # Build-time: linking static libraries
+export LIBRARY_PATH=$PWD        # Build-time: linking against archives in $PWD
 export C_INCLUDE_PATH=$PWD      # Build-time: locating header files
-export LD_LIBRARY_PATH=$PWD     # Runtime: loading shared libraries
 ```
+
+`LD_LIBRARY_PATH` is **not** required:
+
+- Default static linkage links everything into the binary at build time
+- Shared linkage (`BUILD_LINKAGE=shared`) bakes `-Wl,-rpath,$ORIGIN` into the binary so
+  `.so` files are found relative to the executable
 
 ## Build troubleshooting
 

@@ -1,9 +1,13 @@
-name: CI/CD Pipeline
+name: Release Validation
+
+# Runs the test suite in both linkage modes before a release is tagged.
+# Per-PR CI exercises the default (static) path; this workflow additionally
+# validates the opt-in shared path so it doesn't rot between releases.
+#
+# Trigger manually via workflow_dispatch before pushing a release tag.
 
 on:
-  push:
-    branches: [main, "tom/*"]
-  pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,21 +21,19 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: git.tomfos.tr/tom/llama-go:build-cuda
+    strategy:
+      fail-fast: false
+      matrix:
+        linkage: [static, shared]
     env:
       LIBRARY_PATH: ${{ github.workspace }}
       C_INCLUDE_PATH: ${{ github.workspace }}
-      # No LD_LIBRARY_PATH needed: default BUILD_LINKAGE=static links everything in.
-      # (Shared-mode opt-in handles runtime via -Wl,-rpath,$ORIGIN baked into the binary.)
-      # Configure sccache for CMake builds
       CMAKE_C_COMPILER_LAUNCHER: sccache
       CMAKE_CXX_COMPILER_LAUNCHER: sccache
       CMAKE_CUDA_COMPILER_LAUNCHER: sccache
-      # Enable GitHub Actions cache backend
       SCCACHE_GHA_ENABLED: "true"
-      # Test models for integration tests
       TEST_CHAT_MODEL: Qwen3-0.6B-Q8_0.gguf
       TEST_EMBEDDING_MODEL: Qwen3-Embedding-0.6B-Q8_0.gguf
-      # Suppress verbose llama.cpp logs (set to "info" or "debug" for debugging)
       LLAMA_LOG: error
     steps:
       - name: Checkout code
@@ -57,28 +59,21 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          # Cache key includes OS/arch, llama.cpp commit, wrapper changes, and Go dependencies
-          # Invalidates when: platform changes, submodule updates, wrapper modified, or dependencies change
-          key: ${{ steps.versions.outputs.slug }}-${{ steps.versions.outputs.arch }}-go-${{ hashFiles('llama.cpp/.git/HEAD', 'wrapper.cpp', 'wrapper.h', '**/go.sum') }}
+          key: ${{ steps.versions.outputs.slug }}-${{ steps.versions.outputs.arch }}-${{ matrix.linkage }}-go-${{ hashFiles('llama.cpp/.git/HEAD', 'wrapper.cpp', 'wrapper.h', '**/go.sum') }}
           restore-keys: |
-            ${{ steps.versions.outputs.slug }}-${{ steps.versions.outputs.arch }}-go-${{ hashFiles('llama.cpp/.git/HEAD', 'wrapper.cpp', 'wrapper.h') }}
-            ${{ steps.versions.outputs.slug }}-${{ steps.versions.outputs.arch }}-go-
+            ${{ steps.versions.outputs.slug }}-${{ steps.versions.outputs.arch }}-${{ matrix.linkage }}-go-
 
       - name: Setup sccache
         uses: https://git.tomfos.tr/tom/sccache-action@v1
 
-      - name: Build library
+      - name: Build library (linkage=${{ matrix.linkage }})
         run: |
-          BUILD_TYPE=cublas CUDA_ARCHITECTURES=86 make libbinding.a
+          BUILD_TYPE=cublas CUDA_ARCHITECTURES=86 BUILD_LINKAGE=${{ matrix.linkage }} make libbinding.a
 
-      - name: Debug - List built artifacts
+      - name: List built artefacts
         run: |
-          echo "=== GPU Detection ==="
-          nvidia-smi || echo "No GPU detected"
-          echo "=== Files in workspace root ==="
-          ls -la *.a *.so 2>/dev/null || echo "No .a or .so files in workspace root"
-          echo "=== Current working directory ==="
-          pwd
+          echo "=== Workspace root ==="
+          ls -la *.a *.so 2>/dev/null || echo "no artefacts"
 
       - name: Download test models
         run: |
@@ -89,10 +84,19 @@ jobs:
             wget -q https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf
           fi
 
+      - name: Compute Go build tags
+        id: tags
+        run: |
+          if [ "${{ matrix.linkage }}" = "shared" ]; then
+            echo "tags=cublas shared_lib" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=cublas" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run tests
         run: |
-          go run github.com/onsi/ginkgo/v2/ginkgo -tags cublas -v ./...
+          go run github.com/onsi/ginkgo/v2/ginkgo -tags '${{ steps.tags.outputs.tags }}' -v ./...
 
       - name: Run example
         run: |
-          go run -tags cublas ./examples/simple -m Qwen3-0.6B-Q8_0.gguf -p 'Hello world' -n 50
+          go run -tags '${{ steps.tags.outputs.tags }}' ./examples/simple -m Qwen3-0.6B-Q8_0.gguf -p 'Hello world' -n 50
