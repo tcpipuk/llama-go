@@ -17,6 +17,10 @@
 package llama
 
 /*
-#cgo LDFLAGS: -lggml-cuda -L/usr/local/cuda/lib64 -lcudart -lcublas -lcuda -lnccl
+// /usr/local/cuda/lib64/stubs lets -lcuda resolve at link time when the build
+// runs without GPU access (e.g. inside `docker build` without --gpus). The
+// real libcuda.so arrives at runtime via nvidia-container-toolkit; the stub
+// just satisfies the linker.
+#cgo LDFLAGS: -lggml-cuda -L/usr/local/cuda/lib64 -L/usr/local/cuda/lib64/stubs -lcudart -lcublas -lcuda -lnccl
 */
 import "C"
