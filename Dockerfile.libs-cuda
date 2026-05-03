@@ -10,14 +10,17 @@
 #   /libs/libbinding.a            — static wrapper (link-time)
 #   /libs/lib*.a                  — llama.cpp static archives (link-time)
 #   /headers/wrapper.h            — CGO type declarations (link-time)
+#
+# llama.cpp headers used by wrapper.cpp ship inside the llama-go Go module
+# itself (cgo_headers/), so consumers don't need them here.
 
 FROM scratch
-COPY libbinding.a            /libs/
-COPY libllama.a              /libs/
-COPY libllama-common.a       /libs/
-COPY libllama-common-base.a  /libs/
-COPY libggml.a               /libs/
-COPY libggml-base.a          /libs/
-COPY libggml-cpu.a           /libs/
-COPY libggml-cuda.a          /libs/
-COPY wrapper.h               /headers/
+COPY libbinding.a                  /libs/
+COPY libllama.a                    /libs/
+COPY libllama-common.a             /libs/
+COPY libllama-common-base.a        /libs/
+COPY libggml.a                     /libs/
+COPY libggml-base.a                /libs/
+COPY libggml-cpu.a                 /libs/
+COPY libggml-cuda.a                /libs/
+COPY wrapper.h                     /headers/
