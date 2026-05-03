@@ -67,6 +67,16 @@ jobs:
       - name: Setup sccache
         uses: https://git.tomfos.tr/tom/sccache-action@v1
 
+      - name: Verify vendored llama.cpp headers are up to date
+        run: |
+          make vendor-headers
+          if ! git diff --quiet -- cgo_headers; then
+            echo "::error::cgo_headers/ is out of sync with the llama.cpp submodule."
+            echo "Run 'make vendor-headers' and commit the result."
+            git diff --stat -- cgo_headers
+            exit 1
+          fi
+
       - name: Build library
         run: |
           BUILD_TYPE=cublas CUDA_ARCHITECTURES=86 make libbinding.a

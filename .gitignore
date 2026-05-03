@@ -4,6 +4,7 @@
 /ggml-metal.metal
 prepare
 wrapper.o
+cgo_headers/.vendored
 
 # build artefacts (static and shared)
 lib*.a

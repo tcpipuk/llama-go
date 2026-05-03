@@ -5,7 +5,12 @@
 #include "llama.cpp/common/sampling.h"
 #include "llama.cpp/common/speculative.h"
 #include "llama.cpp/common/chat.h"
-#include "llama.cpp/vendor/nlohmann/json.hpp"
+// Use angle-bracket form so this resolves via -I paths in both modes:
+// dev (-I./llama.cpp/vendor → submodule) and consumer
+// (-I./cgo_headers/llama.cpp/thirdparty → vendored copy). The vendored copy
+// can't live under a directory named "vendor" because Go's module zip excludes
+// any nested vendor/ subtree.
+#include <nlohmann/json.hpp>
 
 #include <string>
 #include <vector>

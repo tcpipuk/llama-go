@@ -287,9 +287,40 @@ llama.cpp/log.o: llama.cpp/ggml.o
 wrapper.o:
 	$(CXX) $(CXXFLAGS) -I./llama.cpp -I./llama.cpp/common -I./llama.cpp/ggml/include -I./llama.cpp/include wrapper.cpp -o wrapper.o -c $(LDFLAGS)
 
+# Vendored llama.cpp headers. Consumers fetching this repo through the Go module
+# proxy don't get the llama.cpp git submodule, so wrapper.cpp's #include
+# "llama.cpp/..." paths fail to resolve at their build time. We mirror the small
+# subset of headers wrapper.cpp transitively pulls in into cgo_headers/, ship
+# that directory through the module, and the cgo build system adds -I./cgo_headers
+# to its CFLAGS (see linkage_*.go) so the includes resolve from there as a
+# fallback when the submodule isn't present.
+#
+# A sentinel file is touched after vendoring so the libbinding.a build can
+# depend on the headers being present without having to track every individual
+# header. Refresh after a submodule bump with `make vendor-headers` (or simply
+# `make clean && make libbinding.a` — clean wipes cgo_headers/ and the next
+# build re-vendors from the current submodule state).
+.PHONY: vendor-headers
+
+vendor-headers cgo_headers/.vendored:
+	@echo "Vendoring llama.cpp headers into cgo_headers/..."
+	rm -rf cgo_headers
+	mkdir -p cgo_headers/llama.cpp/thirdparty
+	# Mirror include/, ggml/include/ and common/ verbatim. The submodule's
+	# vendor/ subtree is renamed to thirdparty/ in our copy because Go's module
+	# zip excludes any nested directory named "vendor" (reserved for Go's
+	# vendoring mechanism).
+	cd llama.cpp && find include ggml/include common \
+	  \( -name '*.h' -o -name '*.hpp' -o -name '*.inl' \) -print0 | \
+	  tar --null --files-from=- -cf - | tar -xf - -C ../cgo_headers/llama.cpp
+	cd llama.cpp/vendor && find . \
+	  \( -name '*.h' -o -name '*.hpp' -o -name '*.inl' \) -print0 | \
+	  tar --null --files-from=- -cf - | tar -xf - -C ../../cgo_headers/llama.cpp/thirdparty
+	@touch cgo_headers/.vendored
+
 # All Go bindings are now handled through wrapper.cpp
 
-libbinding.a: llama.cpp/ggml.o wrapper.o $(EXTRA_TARGETS)
+libbinding.a: cgo_headers/.vendored llama.cpp/ggml.o wrapper.o $(EXTRA_TARGETS)
 	cd build && cmake --build . --target llama-common
 	ar crs libbinding.a wrapper.o $(EXTRA_TARGETS)
 ifeq ($(BUILD_LINKAGE),static)
@@ -313,6 +344,7 @@ clean:
 	rm -rf *.a
 	rm -rf *.so *.so.0
 	rm -rf llama.cpp/*.o
+	rm -rf cgo_headers
 	cd llama.cpp && git checkout -- . && git clean -fd
 	rm -rf build
 
