@@ -16,7 +16,7 @@ on:
       go_version:
         description: 'Go version'
         required: false
-        default: '1.25.2'
+        default: '1.26.3'
         type: string
   push:
     branches: [main]
@@ -45,7 +45,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.FORGEJO_TOKEN }}
+          password: ${{ secrets.PACKAGE_TOKEN }}
 
       - name: Build and push CUDA image
         uses: docker/build-push-action@v5
@@ -56,4 +56,4 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ env.IMAGE_TAG }}
           build-args: |
             CUDA_ARCHITECTURES=${{ github.event.inputs.cuda_architectures || '86' }}
-            GO_VERSION=${{ github.event.inputs.go_version || '1.25.2' }}
+            GO_VERSION=${{ github.event.inputs.go_version || '1.26.3' }}
