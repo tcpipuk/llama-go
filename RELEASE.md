@@ -168,12 +168,12 @@ For projects requiring GPU acceleration, test CUDA support:
    strings libggml.so | grep -i cuda | head -5  # Should show cuda symbols
    ```
 
-3. Test GPU acceleration with Go 1.25+:
+3. Test GPU acceleration with Go 1.26+:
 
    ```bash
    docker run --rm --gpus all --cpus=8 -v $(pwd):/workspace go-llama-cuda \
-     bash -c "wget -q https://go.dev/dl/go1.25.1.linux-amd64.tar.gz && \
-              tar -C /usr/local -xzf go1.25.1.linux-amd64.tar.gz && \
+     bash -c "wget -q https://go.dev/dl/go1.26.3.linux-amd64.tar.gz && \
+              tar -C /usr/local -xzf go1.26.3.linux-amd64.tar.gz && \
               export PATH=/usr/local/go/bin:\$PATH && \
               cd /workspace && \
               LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace \

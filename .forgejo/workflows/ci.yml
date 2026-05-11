@@ -155,7 +155,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.FORGEJO_TOKEN }}
+          password: ${{ secrets.PACKAGE_TOKEN }}
 
       - name: Build and push libs-cuda image
         uses: https://github.com/docker/build-push-action@v6
