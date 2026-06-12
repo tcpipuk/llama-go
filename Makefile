@@ -181,7 +181,7 @@ ifeq ($(BUILD_TYPE),metal)
 	CGO_LDFLAGS+="-framework Accelerate -framework Foundation -framework Metal -framework MetalKit -framework MetalPerformanceShaders"
 	CMAKE_ARGS+=-DGGML_METAL=ON
 	EXTRA_TARGETS+=llama.cpp/ggml-metal.o
-	BACKEND_STATIC_LIBS=build/ggml/src/ggml-metal/libggml-metal.a
+	BACKEND_STATIC_LIBS=build/ggml/src/ggml-metal/libggml-metal.a build/ggml/src/ggml-blas/libggml-blas.a
 	BACKEND_SHARED_LIBS=build/bin/libggml-metal.dylib
 	BACKEND_SHARED_BASENAMES=libggml-metal.dylib
 endif
