@@ -649,13 +649,17 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
     }
 
     try {
-        // Clear target KV cache from divergence point
-        // Sequence ID 0 is the default sequence for single-sequence inference
-        // For speculative generation with full cache hits, we need to refresh the second-to-last token
-        // (since we decode all but last token), so clear from that position
+        const llama_seq_id seq_id = 0; // single-sequence inference
+
+        // Clear target/draft KV caches from their divergence points.
+        // For full cache hits we refresh the second-to-last token (we decode all
+        // but the last token), so clear from that position.
         int target_clear_from = (target_prefix_len == n_tokens && n_tokens > 1) ? n_tokens - 2 : target_prefix_len;
-        llama_memory_seq_rm(llama_get_memory(wrapper_tgt->ctx), 0, target_clear_from, -1);
-        // Note: draft KV cache is managed internally by common_speculative (b8635+)
+        llama_memory_seq_rm(llama_get_memory(wrapper_tgt->ctx), seq_id, target_clear_from, -1);
+        // b9670: the draft context is now driven explicitly (prompt eval, verify
+        // decode and KV trimming below), so its cache must be cleared too.
+        int draft_clear_from = (draft_prefix_len == n_tokens && n_tokens > 1) ? n_tokens - 2 : draft_prefix_len;
+        llama_memory_seq_rm(llama_get_memory(wrapper_dft->ctx), seq_id, draft_clear_from, -1);
 
         // Convert C tokens to vector
         std::vector<llama_token> prompt_tokens(tokens, tokens + n_tokens);
@@ -665,30 +669,20 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
             return nullptr;
         }
 
-        // Set up speculative parameters.
-        // b9002+: common_params_speculative uses a nested draft substructure
-        // (params.draft.* instead of the flat fields used pre-b9002).
-        // common_speculative_init checks !params.draft.mparams.path.empty() to
-        // decide whether the draft implementation should be registered, so the
-        // path field must be set even though we're passing the model directly.
+        // Set up speculative parameters (b9670 common_speculative API).
+        // The refactored API takes a vector of types and reuses the caller's
+        // already-loaded target/draft contexts directly (init keys on ctx_dft,
+        // not on a model path), so we hand it the contexts rather than a path.
         common_params_speculative spec_params;
-        spec_params.type = COMMON_SPECULATIVE_TYPE_DRAFT;
+        spec_params.types         = { COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE };
+        spec_params.draft.n_max   = params.n_draft > 0 ? params.n_draft : 16;
+        spec_params.draft.p_min   = 0.75f;
+        spec_params.draft.ctx_tgt = wrapper_tgt->ctx;
+        spec_params.draft.ctx_dft = wrapper_dft->ctx;
 
-        // Configure draft model parameters
-        spec_params.draft.n_max = params.n_draft > 0 ? params.n_draft : 16;
-        spec_params.draft.p_min = 0.75f;
-        spec_params.draft.model = wrapper_dft->model;
-        spec_params.draft.mparams.path = "draft";
-
-        // Draft context parameters
-        spec_params.draft.cparams = llama_context_default_params();
-        spec_params.draft.cparams.n_ctx           = llama_n_ctx(wrapper_dft->ctx);
-        spec_params.draft.cparams.n_batch         = llama_n_batch(wrapper_dft->ctx);
-        spec_params.draft.cparams.n_threads       = llama_n_threads(wrapper_dft->ctx);
-        spec_params.draft.cparams.n_threads_batch = llama_n_threads_batch(wrapper_dft->ctx);
-
-        // Initialize speculative sampling
-        common_speculative* spec = common_speculative_init(spec_params, wrapper_tgt->ctx);
+        // Initialise speculative sampling. n_seq must match the draft context's
+        // configured sequence capacity.
+        common_speculative* spec = common_speculative_init(spec_params, llama_n_seq_max(wrapper_dft->ctx));
         if (!spec) {
             g_last_error = "Failed to initialize speculative sampling";
             return nullptr;
@@ -800,6 +794,49 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
             llama_batch_free(batch);
         }
 
+        // Seed the draft context with the same prompt (all but the last token).
+        // b9670 requires the caller to evaluate the prompt on the draft context;
+        // common_speculative_draft no longer does this internally.
+        if (prompt_tokens.size() > 1 && draft_prefix_len < (int)prompt_tokens.size() - 1) {
+            int tokens_to_process = prompt_tokens.size() - 1 - draft_prefix_len;
+            int n_batch = llama_n_batch(wrapper_dft->ctx);
+
+            for (int chunk_start = 0; chunk_start < tokens_to_process; chunk_start += n_batch) {
+                int chunk_size = std::min(n_batch, tokens_to_process - chunk_start);
+                llama_batch batch = llama_batch_init(chunk_size, 0, 1);
+                common_batch_clear(batch);
+
+                for (int i = 0; i < chunk_size; i++) {
+                    int token_idx = draft_prefix_len + chunk_start + i;
+                    bool needs_logits = (chunk_start + i == tokens_to_process - 1);
+                    common_batch_add(batch, prompt_tokens[token_idx], token_idx, { seq_id }, needs_logits);
+                }
+
+                if (llama_decode(wrapper_dft->ctx, batch) != 0) {
+                    llama_batch_free(batch);
+                    common_sampler_free(sampler);
+                    common_speculative_free(spec);
+                    g_last_error = "Failed to decode draft prompt";
+                    return nullptr;
+                }
+
+                llama_batch_free(batch);
+            }
+        } else if (draft_prefix_len == (int)prompt_tokens.size() && prompt_tokens.size() > 1) {
+            llama_batch batch = llama_batch_init(512, 0, 1);
+            common_batch_clear(batch);
+            common_batch_add(batch, prompt_tokens[prompt_tokens.size() - 2], prompt_tokens.size() - 2, { seq_id }, true);
+
+            if (llama_decode(wrapper_dft->ctx, batch) != 0) {
+                llama_batch_free(batch);
+                common_sampler_free(sampler);
+                common_speculative_free(spec);
+                g_last_error = "Failed to refresh logits for cached draft prompt";
+                return nullptr;
+            }
+            llama_batch_free(batch);
+        }
+
         // Generation variables
         std::string result;
         llama_token last_token = prompt_tokens.back();
@@ -809,10 +846,29 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
 
         llama_batch batch_tgt = llama_batch_init(llama_n_batch(wrapper_tgt->ctx), 0, 1);
 
+        common_speculative_begin(spec, seq_id, prompt_tgt);
+        llama_tokens draft;
+
         // Generation loop
         while (result.length() < (size_t)n_predict) {
-            // Generate draft tokens
-            llama_tokens draft = common_speculative_draft(spec, spec_params, prompt_tgt, last_token);
+            // Generate draft tokens (b9670 stateful API: set per-seq draft params,
+            // then draft() writes into the result vector we point it at).
+            common_speculative_get_draft_params(spec, seq_id) = {
+                /* .drafting = */ true,
+                /* .n_max    = */ -1,
+                /* .n_past   = */ (llama_pos) n_past,
+                /* .id_last  = */ last_token,
+                /* .prompt   = */ &prompt_tgt,
+                /* .result   = */ &draft,
+            };
+            common_speculative_draft(spec);
+
+            // Trim any speculative tokens the draft left beyond the verified
+            // frontier before re-evaluating the verification batch on it.
+            {
+                const llama_pos pos_max = llama_memory_seq_pos_max(llama_get_memory(wrapper_tgt->ctx), seq_id);
+                llama_memory_seq_rm(llama_get_memory(wrapper_dft->ctx), seq_id, pos_max + 1, -1);
+            }
 
             // Prepare batch with last token and draft
             common_batch_clear(batch_tgt);
@@ -830,11 +886,29 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
                 break;
             }
 
+            // Keep the draft context's KV in sync by evaluating the same batch.
+            if (llama_decode(wrapper_dft->ctx, batch_tgt) != 0) {
+                if (params.debug) {
+                    fprintf(stderr, "WARNING: draft decode failed, stopping\n");
+                }
+                break;
+            }
+
             // Sample and accept tokens
             const auto ids = common_sampler_sample_and_accept_n(sampler, wrapper_tgt->ctx, draft);
 
             if (ids.empty()) {
                 break;
+            }
+
+            // Inform the speculator how many drafted tokens were accepted, but
+            // only when a draft was actually produced: common_speculative_accept
+            // asserts on impl_last[seq_id], which upstream sets only for a
+            // non-empty draft. An empty draft means no implementation engaged
+            // this step (we just sampled the target normally), so there is
+            // nothing to accept. (ids[0] is the target's bonus token.)
+            if (!draft.empty()) {
+                common_speculative_accept(spec, seq_id, (uint16_t)(ids.size() - 1));
             }
 
             // Process accepted tokens - track actual count in case of early termination
@@ -885,10 +959,12 @@ early_exit:
                 n_past += ids.size();
             }
 
-            // Clean up any unaccepted/unprocessed tokens from KV cache
-            // This removes everything from position n_past onwards, ensuring the cache
-            // only contains tokens we've actually processed and accepted
-            llama_memory_seq_rm(llama_get_memory(wrapper_tgt->ctx), 0, n_past, -1);
+            // Clean up any unaccepted/unprocessed tokens from both KV caches.
+            // Removes everything from position n_past onwards so each cache only
+            // contains tokens we've actually processed and accepted.
+            llama_memory_seq_rm(llama_get_memory(wrapper_tgt->ctx), seq_id, n_past, -1);
+            llama_memory_seq_rm(llama_get_memory(wrapper_dft->ctx), seq_id, n_past, -1);
+            draft.clear();
 
             // Update last token for next iteration
             if (tokens_processed > 0) {

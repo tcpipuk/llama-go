@@ -172,8 +172,8 @@ For projects requiring GPU acceleration, test CUDA support:
 
    ```bash
    docker run --rm --gpus all --cpus=8 -v $(pwd):/workspace go-llama-cuda \
-     bash -c "wget -q https://go.dev/dl/go1.26.3.linux-amd64.tar.gz && \
-              tar -C /usr/local -xzf go1.26.3.linux-amd64.tar.gz && \
+     bash -c "wget -q https://go.dev/dl/go1.26.4.linux-amd64.tar.gz && \
+              tar -C /usr/local -xzf go1.26.4.linux-amd64.tar.gz && \
               export PATH=/usr/local/go/bin:\$PATH && \
               cd /workspace && \
               LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace \
