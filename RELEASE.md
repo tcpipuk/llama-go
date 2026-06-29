@@ -85,6 +85,16 @@ docker run --rm -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:bu
 # Verify build created all artifacts (static mode -> .a files in workspace root)
 ls -la libbinding.a libllama-common.a libllama-common-base.a libllama.a libggml*.a
 ls -lat *.a | head -10  # Check timestamps confirm fresh build
+```
+
+> **Vendored headers re-sync automatically.** Building runs the `vendor-headers` make target,
+> which wipes and regenerates `cgo_headers/` from the submodule (the module ships these so cgo can
+> recompile `wrapper.cpp` from the Go-module-proxy source, which doesn't carry the submodule). After
+> a version bump, `git status` will therefore show `cgo_headers/` additions, deletions, and edits.
+> These are expected and **must be committed in the same commit as the submodule pointer** —
+> otherwise downstream consumers get vendored headers that don't match the pinned llama.cpp source.
+
+```bash
 
 # Download test models if not present
 ls -la Qwen3-0.6B-Q8_0.gguf 2>/dev/null || \
@@ -228,6 +238,14 @@ rebuild, and retest.
 Once compatibility is confirmed, commit with a clear 2-3 paragraph description explaining what
 changed and why, then create an annotated tag.
 
+Stage both the submodule pointer **and** the re-vendored `cgo_headers/` changes (see the note in
+step 4) so they land in a single commit:
+
+```bash
+git add llama.cpp cgo_headers
+git diff --cached --stat  # Should show the submodule pointer plus cgo_headers churn
+```
+
 **Commit message example**:
 
 ```bash
@@ -322,6 +340,7 @@ Before tagging a release, verify:
 - [ ] No `.a`, `.so`, or `.o` files present before build
 - [ ] Submodule updated to target llama.cpp release
 - [ ] Submodule has no local modifications (clean checkout)
+- [ ] Re-vendored `cgo_headers/` changes staged alongside the submodule pointer
 - [ ] Library builds successfully with Docker containers (default static linkage)
 - [ ] All expected artifacts created with fresh timestamps
 - [ ] Example program loads test model without errors
