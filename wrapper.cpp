@@ -102,8 +102,12 @@ static struct llama_model_params convert_model_params(llama_wrapper_model_params
     }
 
     model_params.main_gpu = params.main_gpu ? atoi(params.main_gpu) : 0;
-    model_params.use_mmap = params.mmap;
-    model_params.use_mlock = params.mlock;
+    // b10675 replaced the use_mmap/use_mlock booleans with a single load_mode enum
+    if (params.mmap) {
+        model_params.load_mode = params.mlock ? LLAMA_LOAD_MODE_MMAP_MLOCK : LLAMA_LOAD_MODE_MMAP;
+    } else {
+        model_params.load_mode = params.mlock ? LLAMA_LOAD_MODE_MLOCK : LLAMA_LOAD_MODE_NONE;
+    }
     model_params.no_host = false;  // Use host buffers (b6709 added field)
 
     // Configure progress callback
