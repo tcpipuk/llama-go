@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       cuda_version:
-        description: 'CUDA version'
+        description: 'CUDA version (nvidia/cuda tag prefix, ubuntu24.04 base)'
         required: false
-        default: '12.4.1'
+        default: '13.0.3'
         type: string
       cuda_architectures:
         description: 'CUDA architectures'
@@ -16,7 +16,7 @@ on:
       go_version:
         description: 'Go version'
         required: false
-        default: '1.26.4'
+        default: '1.27.0'
         type: string
   push:
     branches: [main]
@@ -55,5 +55,6 @@ jobs:
           push: true
           tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ env.IMAGE_TAG }}
           build-args: |
+            CUDA_VERSION=${{ github.event.inputs.cuda_version || '13.0.3' }}
             CUDA_ARCHITECTURES=${{ github.event.inputs.cuda_architectures || '86' }}
-            GO_VERSION=${{ github.event.inputs.go_version || '1.26.4' }}
+            GO_VERSION=${{ github.event.inputs.go_version || '1.27.0' }}

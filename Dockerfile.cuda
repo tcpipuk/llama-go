@@ -1,5 +1,6 @@
 # Dockerfile.cuda - CUDA build environment for llama-go
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+ARG CUDA_VERSION=13.0.3
+FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu24.04
 
 # Install build essentials and cmake
 RUN apt-get update && apt-get install -y \
@@ -12,8 +13,8 @@ RUN apt-get update && apt-get install -y \
     xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Go 1.26.4
-ARG GO_VERSION=1.26.4
+# Install Go 1.27.0
+ARG GO_VERSION=1.27.0
 RUN wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz && \
     tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz && \
     rm go${GO_VERSION}.linux-amd64.tar.gz
@@ -50,6 +51,8 @@ ENV BUILD_TYPE=cublas
 #   80 = A100 (Ampere)
 #   86 = RTX 3000 series (Ampere)
 #   89 = RTX 4000 series (Ada Lovelace)
+#   90 = H100 (Hopper)
+#  120 = RTX 5000 series (Blackwell)
 ARG CUDA_ARCHITECTURES=86
 ENV CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES}
 ENV LIBRARY_PATH=/workspace
