@@ -35,6 +35,27 @@ static void llama_log_callback(ggml_log_level level, const char * text, void * /
     }
 }
 
+// Batch helpers for llama_batch. b11521 removed common_batch_clear/common_batch_add
+// in favour of the llama_batch_ext-based common_batch; these keep the old behaviour.
+static void batch_clear(struct llama_batch & batch) {
+    batch.n_tokens = 0;
+}
+
+static void batch_add(struct llama_batch & batch, llama_token id, llama_pos pos,
+                      const std::vector<llama_seq_id> & seq_ids, bool logits) {
+    GGML_ASSERT(batch.seq_id[batch.n_tokens] && "llama_batch size exceeded");
+
+    batch.token   [batch.n_tokens] = id;
+    batch.pos     [batch.n_tokens] = pos;
+    batch.n_seq_id[batch.n_tokens] = seq_ids.size();
+    for (size_t i = 0; i < seq_ids.size(); ++i) {
+        batch.seq_id[batch.n_tokens][i] = seq_ids[i];
+    }
+    batch.logits  [batch.n_tokens] = logits;
+
+    batch.n_tokens++;
+}
+
 extern "C" {
 
 // Initialise logging based on LLAMA_LOG environment variable
@@ -417,7 +438,7 @@ char* llama_wrapper_generate_with_tokens(void* ctx, const int* tokens, int n_tok
             for (int chunk_start = 0; chunk_start < tokens_to_process; chunk_start += n_batch) {
                 int chunk_size = std::min(n_batch, tokens_to_process - chunk_start);
                 llama_batch batch = llama_batch_init(chunk_size, 0, 1);
-                common_batch_clear(batch);
+                batch_clear(batch);
 
                 // Add tokens for this chunk with explicit positions
                 for (int i = 0; i < chunk_size; i++) {
@@ -425,7 +446,7 @@ char* llama_wrapper_generate_with_tokens(void* ctx, const int* tokens, int n_tok
                     int position = prefix_len + chunk_start + i;
                     // Only the very last token of the entire prompt needs logits
                     bool needs_logits = (chunk_start + i == tokens_to_process - 1);
-                    common_batch_add(batch, prompt_tokens[token_idx], position, { 0 }, needs_logits);
+                    batch_add(batch, prompt_tokens[token_idx], position, { 0 }, needs_logits);
                 }
 
                 if (llama_decode(wrapper->ctx, batch) != 0) {
@@ -447,8 +468,8 @@ char* llama_wrapper_generate_with_tokens(void* ctx, const int* tokens, int n_tok
             // This is critical: without this, we sample from stale logits from the previous generation
             // The last prompt token is at position n_tokens - 1 (0-indexed positions)
             llama_batch batch = llama_batch_init(512, 0, 1);
-            common_batch_clear(batch);
-            common_batch_add(batch, prompt_tokens[n_tokens - 1], n_tokens - 1, { 0 }, true);
+            batch_clear(batch);
+            batch_add(batch, prompt_tokens[n_tokens - 1], n_tokens - 1, { 0 }, true);
 
             if (llama_decode(wrapper->ctx, batch) != 0) {
                 if (params.debug) {
@@ -536,8 +557,8 @@ char* llama_wrapper_generate_with_tokens(void* ctx, const int* tokens, int n_tok
             // Decode the sampled token to get logits for next iteration
             // Allocate enough space for the batch (minimum 512 tokens as per llama.cpp examples)
             llama_batch gen_batch = llama_batch_init(512, 0, 1);
-            common_batch_clear(gen_batch);
-            common_batch_add(gen_batch, new_token_id, n_past, { 0 }, true);
+            batch_clear(gen_batch);
+            batch_add(gen_batch, new_token_id, n_past, { 0 }, true);
 
             if (params.debug && n_gen == 0) {
                 fprintf(stderr, "DEBUG: Batch token=%d, pos=%d, n_tokens=%d\n", new_token_id, n_past, gen_batch.n_tokens);
@@ -758,14 +779,14 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
             for (int chunk_start = 0; chunk_start < tokens_to_process; chunk_start += n_batch) {
                 int chunk_size = std::min(n_batch, tokens_to_process - chunk_start);
                 llama_batch batch = llama_batch_init(chunk_size, 0, 1);
-                common_batch_clear(batch);
+                batch_clear(batch);
 
                 // Add tokens for this chunk with explicit positions
                 for (int i = 0; i < chunk_size; i++) {
                     int token_idx = target_prefix_len + chunk_start + i;
                     // Only the very last token of the entire prompt needs logits
                     bool needs_logits = (chunk_start + i == tokens_to_process - 1);
-                    common_batch_add(batch, prompt_tokens[token_idx], token_idx, { 0 }, needs_logits);
+                    batch_add(batch, prompt_tokens[token_idx], token_idx, { 0 }, needs_logits);
                 }
 
                 if (llama_decode(wrapper_tgt->ctx, batch) != 0) {
@@ -782,8 +803,8 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
             // Full cache hit - refresh the second-to-last token to ensure determinism
             // This matches the pattern where we decode all but the last token
             llama_batch batch = llama_batch_init(512, 0, 1);
-            common_batch_clear(batch);
-            common_batch_add(batch, prompt_tokens[prompt_tokens.size() - 2], prompt_tokens.size() - 2, { 0 }, true);
+            batch_clear(batch);
+            batch_add(batch, prompt_tokens[prompt_tokens.size() - 2], prompt_tokens.size() - 2, { 0 }, true);
 
             if (llama_decode(wrapper_tgt->ctx, batch) != 0) {
                 if (params.debug) {
@@ -808,12 +829,12 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
             for (int chunk_start = 0; chunk_start < tokens_to_process; chunk_start += n_batch) {
                 int chunk_size = std::min(n_batch, tokens_to_process - chunk_start);
                 llama_batch batch = llama_batch_init(chunk_size, 0, 1);
-                common_batch_clear(batch);
+                batch_clear(batch);
 
                 for (int i = 0; i < chunk_size; i++) {
                     int token_idx = draft_prefix_len + chunk_start + i;
                     bool needs_logits = (chunk_start + i == tokens_to_process - 1);
-                    common_batch_add(batch, prompt_tokens[token_idx], token_idx, { seq_id }, needs_logits);
+                    batch_add(batch, prompt_tokens[token_idx], token_idx, { seq_id }, needs_logits);
                 }
 
                 if (llama_decode(wrapper_dft->ctx, batch) != 0) {
@@ -828,8 +849,8 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
             }
         } else if (draft_prefix_len == (int)prompt_tokens.size() && prompt_tokens.size() > 1) {
             llama_batch batch = llama_batch_init(512, 0, 1);
-            common_batch_clear(batch);
-            common_batch_add(batch, prompt_tokens[prompt_tokens.size() - 2], prompt_tokens.size() - 2, { seq_id }, true);
+            batch_clear(batch);
+            batch_add(batch, prompt_tokens[prompt_tokens.size() - 2], prompt_tokens.size() - 2, { seq_id }, true);
 
             if (llama_decode(wrapper_dft->ctx, batch) != 0) {
                 llama_batch_free(batch);
@@ -875,11 +896,11 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
             }
 
             // Prepare batch with last token and draft
-            common_batch_clear(batch_tgt);
-            common_batch_add(batch_tgt, last_token, n_past, { 0 }, true);
+            batch_clear(batch_tgt);
+            batch_add(batch_tgt, last_token, n_past, { 0 }, true);
 
             for (size_t i = 0; i < draft.size(); ++i) {
-                common_batch_add(batch_tgt, draft[i], n_past + i + 1, { 0 }, true);
+                batch_add(batch_tgt, draft[i], n_past + i + 1, { 0 }, true);
             }
 
             // Evaluate on target model
@@ -1160,12 +1181,12 @@ int llama_wrapper_embeddings(void* ctx, const char* text, float* embeddings, int
         for (int i = 0; i < n_tokens; i += n_batch) {
             int chunk_size = std::min(n_batch, n_tokens - i);
             llama_batch batch = llama_batch_init(chunk_size, 0, 1);
-            common_batch_clear(batch);
+            batch_clear(batch);
 
             // Add tokens for this chunk
             for (int j = 0; j < chunk_size; j++) {
                 // All tokens need logits for embeddings
-                common_batch_add(batch, tokens[i + j], i + j, { 0 }, true);
+                batch_add(batch, tokens[i + j], i + j, { 0 }, true);
             }
 
             if (llama_decode(wrapper->ctx, batch) != 0) {
@@ -1270,14 +1291,14 @@ int llama_wrapper_embeddings_batch(void* ctx, const char** texts, int n_texts, f
 
                 // Reset for next batch
                 s = 0;
-                common_batch_clear(batch);
+                batch_clear(batch);
             }
 
             // Add tokens for this text with unique seq_id
             for (int j = 0; j < n_tokens; j++) {
                 // Position is relative to this sequence (starts at 0)
                 // All tokens need logits for embeddings
-                common_batch_add(batch, tokens[j], j, { s }, true);
+                batch_add(batch, tokens[j], j, { s }, true);
             }
 
             s++;  // Move to next sequence ID
@@ -1439,7 +1460,7 @@ llama_wrapper_parsed_message* llama_wrapper_parse_reasoning(
         syntax.parse_tool_calls = false;  // Don't need tool parsing for this use case
 
         // Parse the text
-        common_chat_msg msg = common_chat_parse(std::string(text), is_partial, syntax);
+        common_chat_msg msg = common_chat_parse(common_chat_input(std::string(text)), is_partial, syntax);
 
         // Allocate result struct
         auto* result = new llama_wrapper_parsed_message;
