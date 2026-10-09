@@ -65,14 +65,14 @@ repos:
 
       - id: golangci-lint
         name: golangci-lint
-        entry: sh -c 'docker run --rm -v $(pwd):/workspace -w /workspace golang:1.26.2-trixie bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \$(go env GOPATH)/bin/golangci-lint run"'
+        entry: sh -c 'docker run --rm -v $(pwd):/workspace -w /workspace -e GOTOOLCHAIN=local git.tomfos.tr/tom/llama-go:build-cuda "go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest && \$(go env GOPATH)/bin/golangci-lint run"'
         language: system
         types: [go]
         pass_filenames: false
 
       - id: go-test
         name: go test
-        entry: sh -c 'docker run --rm --gpus all -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda bash -c "LIBRARY_PATH=/workspace C_INCLUDE_PATH=/workspace LD_LIBRARY_PATH=/workspace go run github.com/onsi/ginkgo/v2/ginkgo --label-filter=\"!gpu\" -v ./..."'
+        entry: sh -c 'docker run --rm --gpus all -v $(pwd):/workspace -w /workspace git.tomfos.tr/tom/llama-go:build-cuda "go run github.com/onsi/ginkgo/v2/ginkgo -tags cublas --label-filter=\"!gpu\" -v ./..."'
         language: system
         types: [go]
         pass_filenames: false
