@@ -246,6 +246,9 @@ func (m *Model) NewContext(opts ...ContextOption) (*Context, error) {
 	for _, opt := range opts {
 		opt(&config)
 	}
+	if config.err != nil {
+		return nil, config.err
+	}
 
 	// Auto-set nParallel for embeddings if not explicitly configured
 	if config.embeddings && config.nParallel == 1 {
@@ -276,6 +279,12 @@ func (m *Model) NewContext(opts ...ContextOption) (*Context, error) {
 		defer C.free(unsafe.Pointer(cFlashAttn))
 	}
 
+	var cRopeScaling *C.char
+	if config.ropeScaling != "" {
+		cRopeScaling = C.CString(config.ropeScaling)
+		defer C.free(unsafe.Pointer(cRopeScaling))
+	}
+
 	params := C.llama_wrapper_model_params{
 		n_ctx:           C.int(config.contextSize),
 		n_batch:         C.int(config.batchSize),
@@ -292,7 +301,10 @@ func (m *Model) NewContext(opts ...ContextOption) (*Context, error) {
 		tensor_split:    nil, // Not used for context creation
 		kv_cache_type:   cKVCacheType,
 		flash_attn:      cFlashAttn,
+
+		rope_scaling_type: cRopeScaling,
 	}
+	setRopeOverrides(&params, &config)
 
 	// Create context
 	ctxPtr := C.llama_wrapper_context_create(modelPtr, params)
@@ -500,4 +512,32 @@ func applyChatTemplate(template string, messages []ChatMessage, addAssistant boo
 	C.llama_wrapper_free_result(cResult)
 
 	return result, nil
+}
+
+// setRopeOverrides copies the numeric RoPE/YaRN options that were set into
+// params, flagging each in rope_overrides so the wrapper leaves the rest at the
+// model's values.
+func setRopeOverrides(params *C.llama_wrapper_model_params, config *contextConfig) {
+	floats := []struct {
+		value *float32
+		dst   *C.float
+		bit   C.uint
+	}{
+		{config.ropeFreqBase, &params.rope_freq_base, C.LLAMA_WRAPPER_ROPE_FREQ_BASE},
+		{config.ropeFreqScale, &params.rope_freq_scale, C.LLAMA_WRAPPER_ROPE_FREQ_SCALE},
+		{config.yarnExtFactor, &params.yarn_ext_factor, C.LLAMA_WRAPPER_YARN_EXT_FACTOR},
+		{config.yarnAttnFactor, &params.yarn_attn_factor, C.LLAMA_WRAPPER_YARN_ATTN_FACTOR},
+		{config.yarnBetaFast, &params.yarn_beta_fast, C.LLAMA_WRAPPER_YARN_BETA_FAST},
+		{config.yarnBetaSlow, &params.yarn_beta_slow, C.LLAMA_WRAPPER_YARN_BETA_SLOW},
+	}
+	for _, f := range floats {
+		if f.value != nil {
+			*f.dst = C.float(*f.value)
+			params.rope_overrides |= f.bit
+		}
+	}
+	if config.yarnOrigCtx != nil {
+		params.yarn_orig_ctx = C.uint(*config.yarnOrigCtx)
+		params.rope_overrides |= C.LLAMA_WRAPPER_YARN_ORIG_CTX
+	}
 }

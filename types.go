@@ -17,6 +17,19 @@ type contextConfig struct {
 	prefixCaching bool   // Enable KV cache prefix reuse (default: true)
 	kvCacheType   string // KV cache quantization type: "f16", "q8_0", "q4_0" (default: "q8_0")
 	flashAttn     string // Flash Attention mode: "auto", "enabled", "disabled" (default: "auto")
+
+	// RoPE/YaRN overrides; empty or nil means use the model's own value
+	ropeScaling    string
+	ropeFreqBase   *float32
+	ropeFreqScale  *float32
+	yarnExtFactor  *float32
+	yarnAttnFactor *float32
+	yarnBetaFast   *float32
+	yarnBetaSlow   *float32
+	yarnOrigCtx    *uint32
+
+	// err holds the first invalid option, returned by NewContext
+	err error
 }
 
 // generateConfig holds configuration for text generation

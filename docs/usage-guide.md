@@ -168,6 +168,21 @@ if err != nil {
 fmt.Printf("Generated %d embeddings\n", len(embeddings))
 ```
 
+Some embedding models are trained on a shorter context than they can be used at. nomic-embed-text-v1.5
+is trained at 2048 tokens, and its model card recommends YaRN scaling for the full 8192:
+
+```go
+ctx, err := model.NewContext(
+    llama.WithEmbeddings(),
+    llama.WithContext(8192),
+    llama.WithRopeScaling("yarn"),
+    llama.WithRopeFreqScale(0.75),
+)
+```
+
+Scaling changes the embedding of every input, short ones included, so vectors produced with
+and without it shouldn't be mixed in one index.
+
 ## Model vs Context
 
 ### Model responsibilities
@@ -228,9 +243,16 @@ Options use the functional options pattern, separated into ModelOption and Conte
 **Model options** (affect weight loading): `WithGPULayers`, `WithMLock`, `WithMMap`,
 `WithMainGPU`, `WithTensorSplit`, `WithSilentLoading`, `WithProgressCallback`
 
-**Context options** (affect execution): `WithContext`, `WithBatch`, `WithThreads`,
+**Context options** (affect execution): `WithContext`, `WithBatch`, `WithUBatch`, `WithThreads`,
 `WithThreadsBatch`, `WithF16Memory`, `WithEmbeddings`, `WithKVCacheType`, `WithFlashAttn`,
 `WithParallel`, `WithPrefixCaching`
+
+**RoPE options** (extend context beyond the training length): `WithRopeScaling`,
+`WithRopeFreqBase`, `WithRopeFreqScale`, `WithYarnExtFactor`, `WithYarnAttnFactor`,
+`WithYarnBetaFast`, `WithYarnBetaSlow`, `WithYarnOrigCtx`
+
+The RoPE options validate their values: `NewContext` returns an error for an unknown scaling
+method or an out-of-range number.
 
 See the [option documentation](https://pkg.go.dev/github.com/tcpipuk/llama-go#pkg-functions) for
 complete details, defaults, and usage examples.
@@ -570,7 +592,7 @@ response, _ := ctx.Generate("Hello", llama.WithMaxTokens(50))
 ### Key differences
 
 | Old API | New API | Notes |
-|---------|---------|-------|
+| --------- | --------- | ------- |
 | `NewModel(path, ...opts)` | `LoadModel(path, ...modelOpts)` then `NewContext(...ctxOpts)` | Two-step initialization |
 | Options mixed together | ModelOption vs ContextOption | Type-safe separation |
 | `model.Generate()` | `ctx.Generate()` | Generation on context |

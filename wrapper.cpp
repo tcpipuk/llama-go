@@ -187,6 +187,28 @@ static struct llama_context_params convert_context_params(llama_wrapper_model_pa
         // If unrecognized, leave as default (auto)
     }
 
+    // RoPE/YaRN overrides, validated on the Go side
+    const unsigned int ro = params.rope_overrides;
+    if (params.rope_scaling_type != nullptr) {
+        std::string scaling(params.rope_scaling_type);
+        if (scaling == "none") {
+            ctx_params.rope_scaling_type = LLAMA_ROPE_SCALING_TYPE_NONE;
+        } else if (scaling == "linear") {
+            ctx_params.rope_scaling_type = LLAMA_ROPE_SCALING_TYPE_LINEAR;
+        } else if (scaling == "yarn") {
+            ctx_params.rope_scaling_type = LLAMA_ROPE_SCALING_TYPE_YARN;
+        } else if (scaling == "longrope") {
+            ctx_params.rope_scaling_type = LLAMA_ROPE_SCALING_TYPE_LONGROPE;
+        }
+    }
+    if (ro & LLAMA_WRAPPER_ROPE_FREQ_BASE)   ctx_params.rope_freq_base   = params.rope_freq_base;
+    if (ro & LLAMA_WRAPPER_ROPE_FREQ_SCALE)  ctx_params.rope_freq_scale  = params.rope_freq_scale;
+    if (ro & LLAMA_WRAPPER_YARN_EXT_FACTOR)  ctx_params.yarn_ext_factor  = params.yarn_ext_factor;
+    if (ro & LLAMA_WRAPPER_YARN_ATTN_FACTOR) ctx_params.yarn_attn_factor = params.yarn_attn_factor;
+    if (ro & LLAMA_WRAPPER_YARN_BETA_FAST)   ctx_params.yarn_beta_fast   = params.yarn_beta_fast;
+    if (ro & LLAMA_WRAPPER_YARN_BETA_SLOW)   ctx_params.yarn_beta_slow   = params.yarn_beta_slow;
+    if (ro & LLAMA_WRAPPER_YARN_ORIG_CTX)    ctx_params.yarn_orig_ctx    = params.yarn_orig_ctx;
+
     return ctx_params;
 }
 

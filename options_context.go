@@ -1,6 +1,8 @@
 package llama
 
 import (
+	"fmt"
+	"math"
 	"runtime"
 )
 
@@ -286,6 +288,166 @@ func WithParallel(n int) ContextOption {
 func WithPrefixCaching(enabled bool) ContextOption {
 	return func(c *contextConfig) {
 		c.prefixCaching = enabled
+	}
+}
+
+// WithRopeScaling sets the RoPE scaling method used to extend a model beyond
+// the context length it was trained on.
+//
+// RoPE encodes token positions as rotations, and a model only learns the
+// rotations for positions up to its training context. Past that, quality
+// degrades gradually rather than failing outright. Scaling maps longer inputs
+// back into the range the model knows.
+//
+// Available methods:
+//   - "none": no scaling
+//   - "linear": linear position interpolation
+//   - "yarn": YaRN, usually paired with WithRopeFreqScale
+//   - "longrope": LongRoPE, for models trained with it
+//
+// NewContext returns an error for any other value.
+//
+// Default: the model's own setting from GGUF metadata
+//
+// Example:
+//
+//	// nomic-embed-text-v1.5 is trained at 2048 tokens; its model card
+//	// recommends YaRN at 0.75 for the full 8192
+//	ctx, err := model.NewContext(
+//	    llama.WithEmbeddings(),
+//	    llama.WithContext(8192),
+//	    llama.WithRopeScaling("yarn"),
+//	    llama.WithRopeFreqScale(0.75),
+//	)
+func WithRopeScaling(method string) ContextOption {
+	return func(c *contextConfig) {
+		switch method {
+		case "none", "linear", "yarn", "longrope":
+			c.ropeScaling = method
+		default:
+			c.setErr(fmt.Errorf("invalid RoPE scaling method %q: want none, linear, yarn or longrope", method))
+		}
+	}
+}
+
+// WithRopeFreqBase sets the RoPE base frequency.
+//
+// Raising the base stretches the wavelength of every rotation, which some
+// models use for context extension instead of (or alongside) scaling. Must be
+// greater than zero.
+//
+// Default: the model's own value from GGUF metadata
+func WithRopeFreqBase(base float32) ContextOption {
+	return func(c *contextConfig) {
+		if !(base > 0) {
+			c.setErr(fmt.Errorf("invalid RoPE frequency base %v: must be greater than zero", base))
+			return
+		}
+		c.ropeFreqBase = &base
+	}
+}
+
+// WithRopeFreqScale sets the RoPE frequency scaling factor.
+//
+// Positions are multiplied by this factor, so values below 1 compress a longer
+// context into the trained range: 0.5 covers twice the training length with
+// linear scaling. Must be greater than zero.
+//
+// Default: the model's own value from GGUF metadata
+func WithRopeFreqScale(scale float32) ContextOption {
+	return func(c *contextConfig) {
+		if !(scale > 0) {
+			c.setErr(fmt.Errorf("invalid RoPE frequency scale %v: must be greater than zero", scale))
+			return
+		}
+		c.ropeFreqScale = &scale
+	}
+}
+
+// WithYarnExtFactor sets the YaRN extrapolation mix factor, between 0 and 1.
+//
+// It blends interpolated and extrapolated rotations; 1 is full YaRN. Only
+// relevant with "yarn" scaling.
+//
+// Default: the model's own value, or 1 when YaRN is enabled
+func WithYarnExtFactor(factor float32) ContextOption {
+	return func(c *contextConfig) {
+		if !(factor >= 0 && factor <= 1) {
+			c.setErr(fmt.Errorf("invalid YaRN extrapolation factor %v: must be between 0 and 1", factor))
+			return
+		}
+		c.yarnExtFactor = &factor
+	}
+}
+
+// WithYarnAttnFactor sets the YaRN attention magnitude scaling factor.
+//
+// Compensates for the change in attention entropy at extended lengths. Must be
+// greater than zero. Only relevant with "yarn" scaling.
+//
+// Default: the model's own value from GGUF metadata
+func WithYarnAttnFactor(factor float32) ContextOption {
+	return func(c *contextConfig) {
+		if !(factor > 0) {
+			c.setErr(fmt.Errorf("invalid YaRN attention factor %v: must be greater than zero", factor))
+			return
+		}
+		c.yarnAttnFactor = &factor
+	}
+}
+
+// WithYarnBetaFast sets the YaRN low correction dimension (beta_fast).
+//
+// Rotation dimensions faster than this are left unscaled. Must be greater than
+// zero. Only relevant with "yarn" scaling.
+//
+// Default: the model's own value, or 32 when unset in GGUF metadata
+func WithYarnBetaFast(beta float32) ContextOption {
+	return func(c *contextConfig) {
+		if !(beta > 0) {
+			c.setErr(fmt.Errorf("invalid YaRN beta_fast %v: must be greater than zero", beta))
+			return
+		}
+		c.yarnBetaFast = &beta
+	}
+}
+
+// WithYarnBetaSlow sets the YaRN high correction dimension (beta_slow).
+//
+// Rotation dimensions slower than this are fully interpolated. Must be greater
+// than zero. Only relevant with "yarn" scaling.
+//
+// Default: the model's own value, or 1 when unset in GGUF metadata
+func WithYarnBetaSlow(beta float32) ContextOption {
+	return func(c *contextConfig) {
+		if !(beta > 0) {
+			c.setErr(fmt.Errorf("invalid YaRN beta_slow %v: must be greater than zero", beta))
+			return
+		}
+		c.yarnBetaSlow = &beta
+	}
+}
+
+// WithYarnOrigCtx sets the context length the model was originally trained
+// with, which YaRN uses as its reference point. Must be greater than zero.
+// Only relevant with "yarn" scaling.
+//
+// Default: the model's training context from GGUF metadata
+func WithYarnOrigCtx(n int) ContextOption {
+	return func(c *contextConfig) {
+		if n <= 0 || n > math.MaxUint32 {
+			c.setErr(fmt.Errorf("invalid YaRN original context %d: must be greater than zero", n))
+			return
+		}
+		orig := uint32(n)
+		c.yarnOrigCtx = &orig
+	}
+}
+
+// setErr records the first invalid option for NewContext to return.
+func (c *contextConfig) setErr(err error) {
+	if c.err == nil {
+		c.err = err
 	}
 }
 

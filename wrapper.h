@@ -10,6 +10,15 @@ extern "C" {
 // Progress callback type (matches llama.cpp signature)
 typedef bool (*llama_progress_callback_wrapper)(float progress, void* user_data);
 
+// Bits for llama_wrapper_model_params.rope_overrides
+#define LLAMA_WRAPPER_ROPE_FREQ_BASE     (1u << 0)
+#define LLAMA_WRAPPER_ROPE_FREQ_SCALE    (1u << 1)
+#define LLAMA_WRAPPER_YARN_EXT_FACTOR    (1u << 2)
+#define LLAMA_WRAPPER_YARN_ATTN_FACTOR   (1u << 3)
+#define LLAMA_WRAPPER_YARN_BETA_FAST     (1u << 4)
+#define LLAMA_WRAPPER_YARN_BETA_SLOW     (1u << 5)
+#define LLAMA_WRAPPER_YARN_ORIG_CTX      (1u << 6)
+
 // Model parameters for loading
 typedef struct {
     int n_ctx;              // Context size
@@ -27,6 +36,17 @@ typedef struct {
     const char* tensor_split; // Tensor split
     const char* kv_cache_type; // KV cache quantization: "f16", "q8_0", "q4_0"
     const char* flash_attn;    // Flash Attention: "auto", "enabled", "disabled"
+    const char* rope_scaling_type; // "none", "linear", "yarn", "longrope"; NULL = from model
+    // RoPE/YaRN numeric overrides. Each applies only when its LLAMA_WRAPPER_* bit is
+    // set in rope_overrides, so a zeroed struct keeps the model's values.
+    unsigned int rope_overrides;
+    float rope_freq_base;
+    float rope_freq_scale;
+    float yarn_ext_factor;
+    float yarn_attn_factor;
+    float yarn_beta_fast;
+    float yarn_beta_slow;
+    unsigned int yarn_orig_ctx;
     bool disable_progress_callback;           // For silent loading
     llama_progress_callback_wrapper progress_callback;  // Custom callback
     void* progress_callback_user_data;        // User data for callback
