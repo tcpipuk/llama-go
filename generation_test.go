@@ -49,10 +49,10 @@ var _ = Describe("Model.Generate", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -122,10 +122,10 @@ var _ = Describe("Model.Generate", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -237,10 +237,10 @@ var _ = Describe("Model.Generate", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -302,10 +302,10 @@ var _ = Describe("Model.Generate", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -393,10 +393,10 @@ var _ = Describe("Model.Generate", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -445,10 +445,10 @@ var _ = Describe("Model.Generate", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -509,12 +509,12 @@ var _ = Describe("Model.Generate", func() {
 			ctx, err = model.NewContext(llama.WithContext(2048))
 			Expect(err).NotTo(HaveOccurred())
 			// Close context before test
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 		})
 
 		AfterEach(func() {
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -566,10 +566,10 @@ var _ = Describe("Model.Generate", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -616,10 +616,10 @@ var _ = Describe("Model.Generate", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -687,10 +687,10 @@ var _ = Describe("Generation Edge Cases", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -754,10 +754,10 @@ var _ = Describe("Generation Edge Cases", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 

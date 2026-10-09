@@ -43,7 +43,7 @@ var _ = Describe("Model Loading Errors", func() {
 			// Load model successfully
 			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			// Attempt to trigger context creation failure with invalid configuration
 			// Using extremely small context size to potentially trigger failure
@@ -55,7 +55,7 @@ var _ = Describe("Model Loading Errors", func() {
 				Expect(err.Error()).To(ContainSubstring("Failed to create context"))
 				Expect(ctx).To(BeNil())
 			} else if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 		})
 
@@ -110,11 +110,11 @@ var _ = Describe("Generation Errors", func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 			ctx = nil
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 			model = nil
 		}
 	})
@@ -129,7 +129,7 @@ var _ = Describe("Generation Errors", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Close the context to make it null, then attempt generation
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 
 			_, err = ctx.Generate("test")
 			Expect(err).To(HaveOccurred())
@@ -311,19 +311,19 @@ var _ = Describe("Speculative Generation Errors", func() {
 
 	AfterEach(func() {
 		if targetCtx != nil {
-			targetCtx.Close()
+			Expect(targetCtx.Close()).To(Succeed())
 			targetCtx = nil
 		}
 		if draftCtx != nil {
-			draftCtx.Close()
+			Expect(draftCtx.Close()).To(Succeed())
 			draftCtx = nil
 		}
 		if targetModel != nil {
-			targetModel.Close()
+			Expect(targetModel.Close()).To(Succeed())
 			targetModel = nil
 		}
 		if draftModel != nil {
-			draftModel.Close()
+			Expect(draftModel.Close()).To(Succeed())
 			draftModel = nil
 		}
 	})
@@ -344,7 +344,7 @@ var _ = Describe("Speculative Generation Errors", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Close draft context to make it null
-			draftCtx.Close()
+			Expect(draftCtx.Close()).To(Succeed())
 
 			_, err = targetCtx.GenerateWithDraft("Hello", draftCtx, llama.WithMaxTokens(5))
 			Expect(err).To(HaveOccurred())
@@ -366,7 +366,7 @@ var _ = Describe("Speculative Generation Errors", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Close target context
-			targetCtx.Close()
+			Expect(targetCtx.Close()).To(Succeed())
 
 			_, err = targetCtx.GenerateWithDraft("Hello", draftCtx, llama.WithMaxTokens(5))
 			Expect(err).To(HaveOccurred())
@@ -461,11 +461,11 @@ var _ = Describe("Tokenization Errors", func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 			ctx = nil
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 			model = nil
 		}
 	})
@@ -480,7 +480,7 @@ var _ = Describe("Tokenization Errors", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Close context to make it unavailable
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 
 			// Tokenize is now a method of Context - test closed context
 			tokens, err := ctx.Tokenize("Hello")
@@ -488,18 +488,18 @@ var _ = Describe("Tokenization Errors", func() {
 			Expect(err.Error()).To(Equal("context is closed"))
 			Expect(tokens).To(BeNil())
 
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 		})
 
 		It("should return 'Invalid parameters for tokenization' for null text", Label("integration"), func() {
 			var err error
 			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			ctx, err = model.NewContext(llama.WithContext(2048))
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx.Close()
+			defer func() { Expect(ctx.Close()).To(Succeed()) }()
 
 			// Empty string is the closest we can get to null in Go
 			tokens, err := ctx.Tokenize("")
@@ -530,11 +530,11 @@ var _ = Describe("Tokenization Errors", func() {
 			var err error
 			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			ctx, err = model.NewContext(llama.WithContext(2048))
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx.Close()
+			defer func() { Expect(ctx.Close()).To(Succeed()) }()
 
 			// Normal tokenisation should not throw exceptions
 			tokens, err := ctx.Tokenize("Hello, world!")
@@ -558,11 +558,11 @@ var _ = Describe("Embedding Errors", func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 			ctx = nil
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 			model = nil
 		}
 	})
@@ -577,7 +577,7 @@ var _ = Describe("Embedding Errors", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Close context to make it null
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 
 			_, err = ctx.GetEmbeddings("Hello")
 			Expect(err).To(HaveOccurred())
@@ -697,11 +697,11 @@ var _ = Describe("Debug Messages", func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 			ctx = nil
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 			model = nil
 		}
 	})
@@ -782,11 +782,11 @@ var _ = Describe("Error Message Quality", func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 			ctx = nil
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 			model = nil
 		}
 	})
@@ -897,7 +897,7 @@ var _ = Describe("Error Message Quality", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Close context and test various operations
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 
 			_, genErr := ctx.Generate("test")
 			Expect(genErr).To(HaveOccurred())

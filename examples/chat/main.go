@@ -48,10 +48,12 @@ func main() {
 	flag.Parse()
 
 	// Configure logging verbosity based on debug flag
+	logLevel := "error" // Quiet mode - only warnings and errors
 	if *debug {
-		os.Setenv("LLAMA_LOG", "info") // Full llama.cpp output for debugging
-	} else {
-		os.Setenv("LLAMA_LOG", "error") // Quiet mode - only warnings and errors
+		logLevel = "info" // Full llama.cpp output for debugging
+	}
+	if err := os.Setenv("LLAMA_LOG", logLevel); err != nil {
+		log.Printf("Failed to set LLAMA_LOG: %v", err)
 	}
 	llama.InitLogging()
 
@@ -67,7 +69,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load model: %v", err)
 	}
-	defer model.Close()
+	defer func() {
+		if err := model.Close(); err != nil {
+			log.Printf("Failed to close model: %v", err)
+		}
+	}()
 
 	// Build context options
 	contextOpts := []llama.ContextOption{
@@ -83,7 +89,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create context: %v", err)
 	}
-	defer ctx.Close()
+	defer func() {
+		if err := ctx.Close(); err != nil {
+			log.Printf("Failed to close context: %v", err)
+		}
+	}()
 
 	// Display model statistics
 	stats, err := model.Stats()

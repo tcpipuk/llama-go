@@ -37,10 +37,10 @@ var _ = Describe("Context.Tokenize", func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 		}
 	})
 
@@ -249,10 +249,10 @@ var _ = Describe("Tokenization Output Validation", func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 		}
 	})
 
@@ -359,10 +359,10 @@ var _ = Describe("Tokenization Edge Cases", func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 		}
 	})
 

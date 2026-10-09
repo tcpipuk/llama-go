@@ -117,12 +117,13 @@ func NewWordWrapper(maxWidth int) *WordWrapper {
 // Write outputs text with word-boundary wrapping.
 func (w *WordWrapper) Write(text string) {
 	for _, r := range text {
-		if r == '\n' {
+		switch r {
+		case '\n':
 			// Explicit newline - flush word buffer and reset
 			w.flushWord()
 			fmt.Print("\n")
 			w.linePos = 0
-		} else if r == ' ' {
+		case ' ':
 			// End of word - flush word then handle space
 			w.flushWord()
 
@@ -134,7 +135,7 @@ func (w *WordWrapper) Write(text string) {
 				fmt.Print(" ")
 				w.linePos++
 			}
-		} else {
+		default:
 			// Part of a word - add to buffer
 			w.wordBuffer.WriteRune(r)
 		}

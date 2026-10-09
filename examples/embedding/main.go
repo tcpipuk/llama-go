@@ -57,7 +57,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error loading model: %v\n", err)
 		os.Exit(1)
 	}
-	defer model.Close()
+	defer func() {
+		if err := model.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error closing model: %v\n", err)
+		}
+	}()
 
 	// Create context with embedding support
 	ctx, err := model.NewContext(
@@ -70,7 +74,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error creating context: %v\n", err)
 		os.Exit(1)
 	}
-	defer ctx.Close()
+	defer func() {
+		if err := ctx.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error closing context: %v\n", err)
+		}
+	}()
 
 	fmt.Printf("Model loaded successfully.\n")
 	fmt.Printf("Getting embeddings for: %s\n", *text)

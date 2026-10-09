@@ -29,10 +29,10 @@ var _ = Describe("Thread Configuration", Label("thread-config"), func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 		}
 	})
 
@@ -156,7 +156,7 @@ var _ = Describe("Thread Configuration", Label("thread-config"), func() {
 		It("should work with GPU offloading enabled", Label("integration", "gpu"), func() {
 			gpuModel, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer gpuModel.Close()
+			defer func() { Expect(gpuModel.Close()).To(Succeed()) }()
 
 			gpuCtx, err := gpuModel.NewContext(
 				llama.WithContext(2048),
@@ -164,7 +164,7 @@ var _ = Describe("Thread Configuration", Label("thread-config"), func() {
 				llama.WithThreadsBatch(8),
 			)
 			Expect(err).NotTo(HaveOccurred())
-			defer gpuCtx.Close()
+			defer func() { Expect(gpuCtx.Close()).To(Succeed()) }()
 
 			result, err := gpuCtx.Generate("Hello",
 				llama.WithMaxTokens(5),
@@ -176,7 +176,7 @@ var _ = Describe("Thread Configuration", Label("thread-config"), func() {
 		It("should work with partial GPU offloading", Label("integration", "gpu"), func() {
 			gpuModel, err := llama.LoadModel(modelPath, llama.WithGPULayers(10))
 			Expect(err).NotTo(HaveOccurred())
-			defer gpuModel.Close()
+			defer func() { Expect(gpuModel.Close()).To(Succeed()) }()
 
 			gpuCtx, err := gpuModel.NewContext(
 				llama.WithContext(2048),
@@ -184,7 +184,7 @@ var _ = Describe("Thread Configuration", Label("thread-config"), func() {
 				llama.WithThreadsBatch(6),
 			)
 			Expect(err).NotTo(HaveOccurred())
-			defer gpuCtx.Close()
+			defer func() { Expect(gpuCtx.Close()).To(Succeed()) }()
 
 			result, err := gpuCtx.Generate("Test",
 				llama.WithMaxTokens(5),

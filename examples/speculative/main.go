@@ -59,7 +59,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error loading target model: %v\n", err)
 		os.Exit(1)
 	}
-	defer target.Close()
+	defer func() {
+		if err := target.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error closing target model: %v\n", err)
+		}
+	}()
 
 	// Create target context
 	targetCtx, err := target.NewContext(
@@ -71,7 +75,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error creating target context: %v\n", err)
 		os.Exit(1)
 	}
-	defer targetCtx.Close()
+	defer func() {
+		if err := targetCtx.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error closing target context: %v\n", err)
+		}
+	}()
 
 	// Load draft model
 	fmt.Printf("Loading draft model: %s\n", *draftModel)
@@ -83,7 +91,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error loading draft model: %v\n", err)
 		os.Exit(1)
 	}
-	defer draft.Close()
+	defer func() {
+		if err := draft.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error closing draft model: %v\n", err)
+		}
+	}()
 
 	// Create draft context
 	draftCtx, err := draft.NewContext(
@@ -95,7 +107,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error creating draft context: %v\n", err)
 		os.Exit(1)
 	}
-	defer draftCtx.Close()
+	defer func() {
+		if err := draftCtx.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error closing draft context: %v\n", err)
+		}
+	}()
 
 	fmt.Printf("Models loaded successfully.\n")
 	fmt.Printf("Prompt: %s\n", *prompt)

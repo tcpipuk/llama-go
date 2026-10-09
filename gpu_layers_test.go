@@ -23,11 +23,11 @@ var _ = Describe("GPU Layer Configuration", Label("gpu-layers"), func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 			ctx = nil
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 			model = nil
 		}
 	})
@@ -157,11 +157,11 @@ var _ = Describe("GPU Layer Configuration", Label("gpu-layers"), func() {
 			// CPU-only timing
 			modelCPU, err := llama.LoadModel(modelPath, llama.WithGPULayers(0))
 			Expect(err).NotTo(HaveOccurred())
-			defer modelCPU.Close()
+			defer func() { Expect(modelCPU.Close()).To(Succeed()) }()
 
 			cpuCtx, err = modelCPU.NewContext(llama.WithContext(2048))
 			Expect(err).NotTo(HaveOccurred())
-			defer cpuCtx.Close()
+			defer func() { Expect(cpuCtx.Close()).To(Succeed()) }()
 
 			startCPU := time.Now()
 			resultCPU, err := cpuCtx.Generate("Test prompt for timing",
@@ -174,11 +174,11 @@ var _ = Describe("GPU Layer Configuration", Label("gpu-layers"), func() {
 			// GPU timing (all layers)
 			modelGPU, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer modelGPU.Close()
+			defer func() { Expect(modelGPU.Close()).To(Succeed()) }()
 
 			gpuCtx, err = modelGPU.NewContext(llama.WithContext(2048))
 			Expect(err).NotTo(HaveOccurred())
-			defer gpuCtx.Close()
+			defer func() { Expect(gpuCtx.Close()).To(Succeed()) }()
 
 			startGPU := time.Now()
 			resultGPU, err := gpuCtx.Generate("Test prompt for timing",
@@ -201,11 +201,11 @@ var _ = Describe("GPU Layer Configuration", Label("gpu-layers"), func() {
 			// Measure with 0 layers (CPU-only)
 			model0, err := llama.LoadModel(modelPath, llama.WithGPULayers(0))
 			Expect(err).NotTo(HaveOccurred())
-			defer model0.Close()
+			defer func() { Expect(model0.Close()).To(Succeed()) }()
 
 			ctx0, err := model0.NewContext(llama.WithContext(2048))
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx0.Close()
+			defer func() { Expect(ctx0.Close()).To(Succeed()) }()
 
 			start0 := time.Now()
 			_, err = ctx0.Generate(prompt, llama.WithMaxTokens(maxTokens))
@@ -215,11 +215,11 @@ var _ = Describe("GPU Layer Configuration", Label("gpu-layers"), func() {
 			// Measure with half layers
 			model14, err := llama.LoadModel(modelPath, llama.WithGPULayers(14))
 			Expect(err).NotTo(HaveOccurred())
-			defer model14.Close()
+			defer func() { Expect(model14.Close()).To(Succeed()) }()
 
 			ctx14, err := model14.NewContext(llama.WithContext(2048))
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx14.Close()
+			defer func() { Expect(ctx14.Close()).To(Succeed()) }()
 
 			start14 := time.Now()
 			_, err = ctx14.Generate(prompt, llama.WithMaxTokens(maxTokens))
@@ -229,11 +229,11 @@ var _ = Describe("GPU Layer Configuration", Label("gpu-layers"), func() {
 			// Measure with all layers
 			modelAll, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer modelAll.Close()
+			defer func() { Expect(modelAll.Close()).To(Succeed()) }()
 
 			ctxAll, err := modelAll.NewContext(llama.WithContext(2048))
 			Expect(err).NotTo(HaveOccurred())
-			defer ctxAll.Close()
+			defer func() { Expect(ctxAll.Close()).To(Succeed()) }()
 
 			startAll := time.Now()
 			_, err = ctxAll.Generate(prompt, llama.WithMaxTokens(maxTokens))

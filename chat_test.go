@@ -35,10 +35,10 @@ var _ = Describe("Chat API", func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 		}
 	})
 

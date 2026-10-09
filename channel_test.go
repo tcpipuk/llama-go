@@ -50,10 +50,10 @@ var _ = Describe("Model.GenerateChannel", func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 		}
 	})
 
@@ -311,7 +311,7 @@ var _ = Describe("Model.GenerateChannel", func() {
 
 	Context("error propagation", func() {
 		It("should return error when model is closed", Label("integration", "channel"), func() {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 
 			bgCtx := context.Background()
 			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
@@ -344,7 +344,7 @@ var _ = Describe("Model.GenerateChannel", func() {
 		})
 
 		It("should not deliver tokens after error", Label("integration", "channel"), func() {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 
 			bgCtx := context.Background()
 			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
@@ -433,7 +433,7 @@ var _ = Describe("Model.GenerateChannel", func() {
 		})
 
 		It("should close both channels even on error", Label("integration", "channel"), func() {
-			model.Close() // Force error
+			Expect(model.Close()).To(Succeed()) // Force error
 
 			bgCtx := context.Background()
 			tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
@@ -732,16 +732,16 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 
 	AfterEach(func() {
 		if draftCtx != nil {
-			draftCtx.Close()
+			Expect(draftCtx.Close()).To(Succeed())
 		}
 		if draftModel != nil {
-			draftModel.Close()
+			Expect(draftModel.Close()).To(Succeed())
 		}
 		if targetCtx != nil {
-			targetCtx.Close()
+			Expect(targetCtx.Close()).To(Succeed())
 		}
 		if targetModel != nil {
-			targetModel.Close()
+			Expect(targetModel.Close()).To(Succeed())
 		}
 	})
 
@@ -941,7 +941,7 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 
 	Context("error conditions", func() {
 		It("should return error when draft model is closed", Label("integration", "channel", "speculative"), func() {
-			draftModel.Close()
+			Expect(draftModel.Close()).To(Succeed())
 
 			bgCtx := context.Background()
 			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, testPrompt, draftCtx,
@@ -972,7 +972,7 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 		})
 
 		It("should return error when target model is closed", Label("integration", "channel", "speculative"), func() {
-			targetModel.Close()
+			Expect(targetModel.Close()).To(Succeed())
 
 			bgCtx := context.Background()
 			tokenCh, errCh := targetCtx.GenerateWithDraftChannel(bgCtx, testPrompt, draftCtx,
@@ -1059,10 +1059,10 @@ var _ = Describe("Channel Streaming Edge Cases", func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 		}
 	})
 

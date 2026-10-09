@@ -65,7 +65,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load model: %v", err)
 	}
-	defer model.Close()
+	defer func() {
+		if err := model.Close(); err != nil {
+			log.Printf("Failed to close model: %v", err)
+		}
+	}()
 
 	// Create context
 	ctx, err := model.NewContext(
@@ -76,7 +80,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create context: %v", err)
 	}
-	defer ctx.Close()
+	defer func() {
+		if err := ctx.Close(); err != nil {
+			log.Printf("Failed to close context: %v", err)
+		}
+	}()
 
 	fmt.Printf("Model loaded successfully.\n\n")
 

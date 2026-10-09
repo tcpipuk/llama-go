@@ -39,10 +39,10 @@ var _ = Describe("Context.GenerateStream", func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 		}
 	})
 
@@ -403,7 +403,7 @@ var _ = Describe("Context.GenerateStream", func() {
 
 	Context("when context is closed", func() {
 		It("should return 'context is closed' error", Label("integration"), func() {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 
 			callback := func(token string) bool {
 				return true
@@ -418,7 +418,7 @@ var _ = Describe("Context.GenerateStream", func() {
 		})
 
 		It("should not call callback when context closed", Label("integration"), func() {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 
 			callbackCalled := false
 			callback := func(token string) bool {
@@ -516,10 +516,10 @@ var _ = Describe("Streaming Callback Behaviour", func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 		}
 	})
 

@@ -28,10 +28,10 @@ var _ = Describe("Prefix Caching", Label("prefix-caching"), func() {
 
 	AfterEach(func() {
 		if ctx != nil {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 		}
 		if model != nil {
-			model.Close()
+			Expect(model.Close()).To(Succeed())
 		}
 	})
 
@@ -82,7 +82,7 @@ var _ = Describe("Prefix Caching", Label("prefix-caching"), func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resultWithCache).NotTo(BeEmpty())
 
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 
 			// Generate with prefix caching disabled
 			ctx, err = model.NewContext(
@@ -175,7 +175,7 @@ var _ = Describe("Prefix Caching", Label("prefix-caching"), func() {
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 
 			// Second generation with caching disabled should not reuse cache
 			ctx, err = model.NewContext(
@@ -209,7 +209,7 @@ var _ = Describe("Prefix Caching", Label("prefix-caching"), func() {
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 
 			// Generate with cache disabled
 			ctx, err = model.NewContext(
@@ -224,7 +224,7 @@ var _ = Describe("Prefix Caching", Label("prefix-caching"), func() {
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 
 			// Generate with cache enabled again
 			ctx, err = model.NewContext(

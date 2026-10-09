@@ -49,10 +49,10 @@ var _ = Describe("Model.GetEmbeddings", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -108,10 +108,10 @@ var _ = Describe("Model.GetEmbeddings", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -174,10 +174,10 @@ var _ = Describe("Model.GetEmbeddings", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -225,10 +225,10 @@ var _ = Describe("Model.GetEmbeddings", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -272,12 +272,12 @@ var _ = Describe("Model.GetEmbeddings", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Close the context
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 		})
 
 		AfterEach(func() {
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -308,11 +308,11 @@ var _ = Describe("Model.GetEmbeddings", func() {
 		It("should return error containing 'embedding generation failed:'", Label("integration"), func() {
 			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			ctx, err := model.NewContext(llama.WithEmbeddings())
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx.Close()
+			defer func() { Expect(ctx.Close()).To(Succeed()) }()
 
 			// Try to trigger an error condition
 			// If embeddings are disabled, this should fail with appropriate error
@@ -354,11 +354,11 @@ var _ = Describe("Model.GetEmbeddings", func() {
 			// Here we document the expected error for completeness
 			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			ctx, err := model.NewContext(llama.WithContext(2048)) // No WithEmbeddings()
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx.Close()
+			defer func() { Expect(ctx.Close()).To(Succeed()) }()
 
 			_, err = ctx.GetEmbeddings("Test")
 			Expect(err).To(HaveOccurred())
@@ -391,10 +391,10 @@ var _ = Describe("Embedding Vector Properties", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -458,10 +458,10 @@ var _ = Describe("Embedding Vector Properties", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -532,10 +532,10 @@ var _ = Describe("Embedding Vector Properties", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -588,7 +588,7 @@ var _ = Describe("WithEmbeddings Option", func() {
 
 		AfterEach(func() {
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -596,11 +596,11 @@ var _ = Describe("WithEmbeddings Option", func() {
 			var err error
 			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			ctx, err := model.NewContext(llama.WithEmbeddings())
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx.Close()
+			defer func() { Expect(ctx.Close()).To(Succeed()) }()
 
 			// Verify embeddings can be generated
 			embeddings, err := ctx.GetEmbeddings("Test")
@@ -612,11 +612,11 @@ var _ = Describe("WithEmbeddings Option", func() {
 			var err error
 			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			ctx, err := model.NewContext(llama.WithEmbeddings())
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx.Close()
+			defer func() { Expect(ctx.Close()).To(Succeed()) }()
 
 			_, err = ctx.GetEmbeddings("Test")
 			Expect(err).NotTo(HaveOccurred())
@@ -626,11 +626,11 @@ var _ = Describe("WithEmbeddings Option", func() {
 			var err error
 			model, err = llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			ctx, err := model.NewContext(llama.WithEmbeddings())
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx.Close()
+			defer func() { Expect(ctx.Close()).To(Succeed()) }()
 
 			// Context should be configured for embeddings
 			embeddings, err := ctx.GetEmbeddings("Configure test")
@@ -663,10 +663,10 @@ var _ = Describe("WithEmbeddings Option", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -696,14 +696,14 @@ var _ = Describe("WithEmbeddings Option", func() {
 		It("should work with WithContext", Label("integration"), func() {
 			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			ctx, err := model.NewContext(
 				llama.WithEmbeddings(),
 				llama.WithContext(2048),
 			)
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx.Close()
+			defer func() { Expect(ctx.Close()).To(Succeed()) }()
 
 			embeddings, err := ctx.GetEmbeddings("Test")
 			Expect(err).NotTo(HaveOccurred())
@@ -713,14 +713,14 @@ var _ = Describe("WithEmbeddings Option", func() {
 		It("should work with WithThreads", Label("integration"), func() {
 			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			ctx, err := model.NewContext(
 				llama.WithEmbeddings(),
 				llama.WithThreads(4),
 			)
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx.Close()
+			defer func() { Expect(ctx.Close()).To(Succeed()) }()
 
 			embeddings, err := ctx.GetEmbeddings("Test")
 			Expect(err).NotTo(HaveOccurred())
@@ -730,11 +730,11 @@ var _ = Describe("WithEmbeddings Option", func() {
 		It("should work with WithGPULayers", Label("integration", "gpu"), func() {
 			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			ctx, err := model.NewContext(llama.WithEmbeddings())
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx.Close()
+			defer func() { Expect(ctx.Close()).To(Succeed()) }()
 
 			embeddings, err := ctx.GetEmbeddings("Test")
 			Expect(err).NotTo(HaveOccurred())
@@ -747,7 +747,7 @@ var _ = Describe("WithEmbeddings Option", func() {
 				llama.WithMMap(true),
 			)
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			ctx, err := model.NewContext(
 				llama.WithEmbeddings(),
@@ -757,7 +757,7 @@ var _ = Describe("WithEmbeddings Option", func() {
 				llama.WithF16Memory(),
 			)
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx.Close()
+			defer func() { Expect(ctx.Close()).To(Succeed()) }()
 
 			embeddings, err := ctx.GetEmbeddings("Test with multiple options")
 			Expect(err).NotTo(HaveOccurred())
@@ -782,11 +782,11 @@ var _ = Describe("Embedding Edge Cases", func() {
 			// In Go, closed context returns "context is closed" before reaching C++
 			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			ctx, err := model.NewContext(llama.WithEmbeddings())
 			Expect(err).NotTo(HaveOccurred())
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 
 			_, err = ctx.GetEmbeddings("Test")
 			Expect(err).To(HaveOccurred())
@@ -829,11 +829,11 @@ var _ = Describe("Embedding Edge Cases", func() {
 		It("should handle exceptions gracefully without crashing", Label("integration"), func() {
 			model, err := llama.LoadModel(modelPath, llama.WithGPULayers(-1))
 			Expect(err).NotTo(HaveOccurred())
-			defer model.Close()
+			defer func() { Expect(model.Close()).To(Succeed()) }()
 
 			ctx, err := model.NewContext(llama.WithEmbeddings())
 			Expect(err).NotTo(HaveOccurred())
-			defer ctx.Close()
+			defer func() { Expect(ctx.Close()).To(Succeed()) }()
 
 			// Try various inputs - should not panic even if errors occur
 			inputs := []string{
@@ -880,10 +880,10 @@ var _ = Describe("Model.GetEmbeddingsBatch", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -996,10 +996,10 @@ var _ = Describe("Model.GetEmbeddingsBatch", func() {
 
 		AfterEach(func() {
 			if ctx != nil {
-				ctx.Close()
+				Expect(ctx.Close()).To(Succeed())
 			}
 			if model != nil {
-				model.Close()
+				Expect(model.Close()).To(Succeed())
 			}
 		})
 
@@ -1010,7 +1010,7 @@ var _ = Describe("Model.GetEmbeddingsBatch", func() {
 		})
 
 		It("should error when context is closed", Label("integration"), func() {
-			ctx.Close()
+			Expect(ctx.Close()).To(Succeed())
 			_, err := ctx.GetEmbeddingsBatch([]string{"Test"})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(Equal("context is closed"))

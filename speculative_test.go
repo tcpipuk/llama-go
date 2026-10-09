@@ -38,19 +38,19 @@ var _ = Describe("Context.GenerateWithDraft", func() {
 
 	AfterEach(func() {
 		if draftCtx != nil {
-			draftCtx.Close()
+			Expect(draftCtx.Close()).To(Succeed())
 			draftCtx = nil
 		}
 		if targetCtx != nil {
-			targetCtx.Close()
+			Expect(targetCtx.Close()).To(Succeed())
 			targetCtx = nil
 		}
 		if draftModel != nil {
-			draftModel.Close()
+			Expect(draftModel.Close()).To(Succeed())
 			draftModel = nil
 		}
 		if targetModel != nil {
-			targetModel.Close()
+			Expect(targetModel.Close()).To(Succeed())
 			targetModel = nil
 		}
 	})
@@ -269,7 +269,7 @@ var _ = Describe("Context.GenerateWithDraft", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Close draft context before generation
-			draftCtx.Close()
+			Expect(draftCtx.Close()).To(Succeed())
 		})
 
 		It("should return 'context is closed' error", Label("integration"), func() {
@@ -320,7 +320,7 @@ var _ = Describe("Context.GenerateWithDraft", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Close target context before generation
-			targetCtx.Close()
+			Expect(targetCtx.Close()).To(Succeed())
 		})
 
 		It("should return 'context is closed' error", Label("integration"), func() {
@@ -574,19 +574,19 @@ var _ = Describe("Context.GenerateWithDraftStream", func() {
 
 	AfterEach(func() {
 		if draftCtx != nil {
-			draftCtx.Close()
+			Expect(draftCtx.Close()).To(Succeed())
 			draftCtx = nil
 		}
 		if targetCtx != nil {
-			targetCtx.Close()
+			Expect(targetCtx.Close()).To(Succeed())
 			targetCtx = nil
 		}
 		if draftModel != nil {
-			draftModel.Close()
+			Expect(draftModel.Close()).To(Succeed())
 			draftModel = nil
 		}
 		if targetModel != nil {
-			targetModel.Close()
+			Expect(targetModel.Close()).To(Succeed())
 			targetModel = nil
 		}
 	})
@@ -798,7 +798,7 @@ var _ = Describe("Context.GenerateWithDraftStream", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Close draft context before streaming
-			draftCtx.Close()
+			Expect(draftCtx.Close()).To(Succeed())
 		})
 
 		It("should return 'context is closed' error", Label("integration"), func() {
@@ -867,16 +867,16 @@ var _ = Describe("Speculative Sampling Edge Cases", func() {
 
 	AfterEach(func() {
 		if draftCtx != nil {
-			draftCtx.Close()
+			Expect(draftCtx.Close()).To(Succeed())
 		}
 		if targetCtx != nil {
-			targetCtx.Close()
+			Expect(targetCtx.Close()).To(Succeed())
 		}
 		if draftModel != nil {
-			draftModel.Close()
+			Expect(draftModel.Close()).To(Succeed())
 		}
 		if targetModel != nil {
-			targetModel.Close()
+			Expect(targetModel.Close()).To(Succeed())
 		}
 	})
 
