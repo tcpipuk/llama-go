@@ -39,6 +39,38 @@ RUN NODE_URL="https://nodejs.org/dist/latest-v${NODE_VERSION}.x/" && \
     rm "${TARBALL}"
 ENV PATH=/opt/node/bin:${PATH}
 
+# Install sccache so local llama.cpp builds reuse compiled objects between runs,
+# as CI already does. The static musl build has no runtime dependencies on the
+# image's libc. Keep the version in step with what sccache-action installs
+# (latest mirrored release) so local and CI caches behave the same way; the
+# checksum is the one published alongside the GitHub release.
+ARG SCCACHE_VERSION=v0.18.0
+ARG SCCACHE_SHA256=45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89
+RUN SCCACHE_DIRNAME="sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl" && \
+    curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/${SCCACHE_DIRNAME}.tar.gz" \
+      -o /tmp/sccache.tar.gz && \
+    echo "${SCCACHE_SHA256}  /tmp/sccache.tar.gz" | sha256sum -c - && \
+    tar -xzf /tmp/sccache.tar.gz -C /tmp && \
+    install -m 0755 "/tmp/${SCCACHE_DIRNAME}/sccache" /usr/local/bin/sccache && \
+    rm -rf /tmp/sccache.tar.gz "/tmp/${SCCACHE_DIRNAME}" && \
+    install -d -m 1777 /var/cache/sccache
+
+# Route CMake's compiler invocations through sccache. Mount a host directory at
+# SCCACHE_DIR to keep the cache between containers; without a mount the cache
+# lives in the container and is simply discarded, so builds still work. The
+# directory is world-writable (sticky, like /tmp) because sccache aborts the
+# compile if it can't create its cache there, which would otherwise break
+# containers run with --user.
+# In CI, SCCACHE_GHA_ENABLED selects the Actions cache backend, which takes
+# precedence over the local disk cache, so these defaults don't interfere there.
+ENV CMAKE_C_COMPILER_LAUNCHER=sccache
+ENV CMAKE_CXX_COMPILER_LAUNCHER=sccache
+ENV CMAKE_CUDA_COMPILER_LAUNCHER=sccache
+ENV SCCACHE_DIR=/var/cache/sccache
+# One llama.cpp version for one CUDA architecture caches under 300 MiB, so 20G
+# holds many versions and architectures before LRU eviction starts discarding.
+ENV SCCACHE_CACHE_SIZE=20G
+
 WORKDIR /workspace
 
 # Set environment for CUDA builds
