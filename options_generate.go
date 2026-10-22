@@ -639,3 +639,13 @@ func WithIgnoreEOS(ignore bool) GenerateOption {
 		c.ignoreEOS = ignore
 	}
 }
+
+// withChatSession attaches a chat session so the sampler starts from the
+// template's generation prompt and can enforce the reasoning budget
+// (-1 = unlimited) using the template's thinking tags.
+func withChatSession(session *chatSession, reasoningBudget int) GenerateOption {
+	return func(c *generateConfig) {
+		c.chatSession = session
+		c.reasoningBudget = reasoningBudget
+	}
+}

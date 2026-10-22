@@ -420,98 +420,38 @@ func (m *Model) ChatTemplate() string {
 //	fmt.Println("Formatted prompt:", prompt)
 func (m *Model) FormatChatPrompt(messages []ChatMessage, opts ChatOptions) (string, error) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if m.closed {
+	closed := m.closed
+	m.mu.RUnlock()
+	if closed {
 		return "", fmt.Errorf("model is closed")
 	}
 
-	// Use the same template resolution logic as Chat/ChatStream
-	template := opts.ChatTemplate
-	if template == "" {
-		template = m.ChatTemplate()
+	// Render the same way as Chat/ChatStream
+	session, err := newChatSession(m, messages, opts, opts.ReasoningFormat)
+	if err != nil {
+		return "", err
 	}
-	if template == "" {
-		return "", fmt.Errorf("no chat template available: provide ChatOptions.ChatTemplate or use a model with embedded template")
-	}
+	defer session.close()
 
-	// Apply template with addAssistant=true (same as generation)
-	return applyChatTemplate(template, messages, true)
+	return session.prompt(), nil
 }
 
-// getChatFormat gets the auto-detected chat format for reasoning parsing.
-// This is cached on the model to avoid repeated detection.
-func (m *Model) getChatFormat() int {
+// getChatTemplates returns the model's chat templates, loading them on first use.
+func (m *Model) getChatTemplates() (unsafe.Pointer, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Initialize templates if not cached
+	if m.closed {
+		return nil, fmt.Errorf("model is closed")
+	}
 	if m.chatTemplates == nil {
 		m.chatTemplates = C.llama_wrapper_chat_templates_init(m.modelPtr, nil)
 		if m.chatTemplates == nil {
-			// Fallback to CONTENT_ONLY if init fails
-			return int(C.LLAMA_CHAT_FORMAT_CONTENT_ONLY)
+			return nil, fmt.Errorf("failed to load chat template: %s", C.GoString(C.llama_wrapper_last_error()))
 		}
 	}
 
-	return int(C.llama_wrapper_chat_templates_get_format(m.chatTemplates))
-}
-
-// applyChatTemplate applies a Jinja2 chat template to messages.
-//
-// This is an internal helper that wraps llama.cpp's native chat template system.
-// The template can be from GGUF metadata or a custom Jinja2 template string.
-//
-// Returns the formatted prompt string ready for generation, or an error if
-// template application fails.
-func applyChatTemplate(template string, messages []ChatMessage, addAssistant bool) (string, error) {
-	if template == "" {
-		return "", fmt.Errorf("template cannot be empty")
-	}
-	if len(messages) == 0 {
-		return "", fmt.Errorf("messages cannot be empty")
-	}
-
-	// Convert template to C string
-	cTemplate := C.CString(template)
-	defer C.free(unsafe.Pointer(cTemplate))
-
-	// Build C arrays for roles and contents
-	cRoles := make([]*C.char, len(messages))
-	cContents := make([]*C.char, len(messages))
-
-	// Allocate C strings and set up defer cleanup
-	for i, msg := range messages {
-		cRoles[i] = C.CString(msg.Role)
-		cContents[i] = C.CString(msg.Content)
-	}
-
-	// Defer cleanup of all C strings
-	defer func() {
-		for i := range messages {
-			C.free(unsafe.Pointer(cRoles[i]))
-			C.free(unsafe.Pointer(cContents[i]))
-		}
-	}()
-
-	// Call C function to apply template
-	cResult := C.llama_wrapper_apply_chat_template(
-		cTemplate,
-		(**C.char)(unsafe.Pointer(&cRoles[0])),
-		(**C.char)(unsafe.Pointer(&cContents[0])),
-		C.int(len(messages)),
-		C.bool(addAssistant),
-	)
-
-	if cResult == nil {
-		return "", fmt.Errorf("failed to apply chat template: %s", C.GoString(C.llama_wrapper_last_error()))
-	}
-
-	// Convert result and free
-	result := C.GoString(cResult)
-	C.llama_wrapper_free_result(cResult)
-
-	return result, nil
+	return m.chatTemplates, nil
 }
 
 // setRopeOverrides copies the numeric RoPE/YaRN options that were set into

@@ -80,6 +80,10 @@ type generateConfig struct {
 	nPrev     int
 	nProbs    int
 	ignoreEOS bool
+
+	// Chat (set internally by Chat/ChatStream)
+	chatSession     *chatSession
+	reasoningBudget int
 }
 
 // Default context configuration
@@ -143,6 +147,8 @@ var defaultGenerateConfig = generateConfig{
 	nPrev:     64,
 	nProbs:    0, // 0 = disabled
 	ignoreEOS: false,
+
+	reasoningBudget: -1, // -1 = unlimited
 }
 
 // modelConfig holds configuration for model loading (model-level only)

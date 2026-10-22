@@ -16,50 +16,92 @@ import (
 // Chat implementation for Context is in context.go
 // This file contains shared types, options, and helpers
 
-// formatChatMessages applies the model's chat template to messages.
-//
-// This uses llama.cpp's native chat template system which supports 40+ formats
-// including chatml, llama2, llama3, mistral, gemma, phi3, and more. The template
-// is read from the model's GGUF metadata or provided via ChatOptions.ChatTemplate.
-//
-// Returns an error if no template is available (neither in options nor model metadata).
-// For raw completion without templates, use Generate() instead of Chat().
-func formatChatMessages(model *Model, messages []ChatMessage, opts ChatOptions) (string, error) {
-	// Priority: user-provided template > model's GGUF template > error
-	template := opts.ChatTemplate
-	if template == "" {
-		template = model.ChatTemplate()
-	}
-	if template == "" {
-		return "", fmt.Errorf("no chat template available: provide ChatOptions.ChatTemplate or use a model with embedded template (or use Generate() for raw completion)")
-	}
-
-	// Apply template using native llama.cpp implementation
-	prompt, err := applyChatTemplate(template, messages, true)
-	if err != nil {
-		return "", fmt.Errorf("failed to apply chat template: %w", err)
-	}
-
-	return prompt, nil
+// chatSession renders the prompt with the model's Jinja chat template and
+// parses generated output with the parser built from the same render, so
+// reasoning extraction always matches the template that produced the prompt.
+type chatSession struct {
+	ptr unsafe.Pointer
 }
 
-// parseReasoning extracts reasoning/thinking content from model output.
-// Returns content and reasoning_content separately.
-func parseReasoning(text string, format ReasoningFormat, chatFormat int) (content, reasoningContent string, err error) {
-	if format == ReasoningFormatNone || text == "" {
-		return text, "", nil
+// newChatSession applies the chat template to messages.
+//
+// The template priority is: opts.ChatTemplate > model's GGUF template > error.
+// For raw completion without templates, use Generate() instead of Chat().
+func newChatSession(m *Model, messages []ChatMessage, opts ChatOptions, format ReasoningFormat) (*chatSession, error) {
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("messages cannot be empty")
 	}
 
+	var templates unsafe.Pointer
+	if opts.ChatTemplate != "" {
+		cTemplate := C.CString(opts.ChatTemplate)
+		defer C.free(unsafe.Pointer(cTemplate))
+		templates = C.llama_wrapper_chat_templates_init(m.modelPtr, cTemplate)
+		if templates == nil {
+			return nil, fmt.Errorf("failed to load chat template: %s", C.GoString(C.llama_wrapper_last_error()))
+		}
+		// The session copies what it needs from the templates
+		defer C.llama_wrapper_chat_templates_free(templates)
+	} else {
+		if m.ChatTemplate() == "" {
+			return nil, fmt.Errorf("no chat template available: provide ChatOptions.ChatTemplate or use a model with embedded template (or use Generate() for raw completion)")
+		}
+		var err error
+		if templates, err = m.getChatTemplates(); err != nil {
+			return nil, err
+		}
+	}
+
+	cRoles := make([]*C.char, len(messages))
+	cContents := make([]*C.char, len(messages))
+	for i, msg := range messages {
+		cRoles[i] = C.CString(msg.Role)
+		cContents[i] = C.CString(msg.Content)
+	}
+	defer func() {
+		for i := range messages {
+			C.free(unsafe.Pointer(cRoles[i]))
+			C.free(unsafe.Pointer(cContents[i]))
+		}
+	}()
+
+	enableThinking := C.int(-1)
+	if opts.EnableThinking != nil {
+		enableThinking = 0
+		if *opts.EnableThinking {
+			enableThinking = 1
+		}
+	}
+
+	ptr := C.llama_wrapper_chat_session_new(
+		templates,
+		(**C.char)(unsafe.Pointer(&cRoles[0])),
+		(**C.char)(unsafe.Pointer(&cContents[0])),
+		C.int(len(messages)),
+		C.llama_wrapper_reasoning_format(format),
+		enableThinking,
+	)
+	if ptr == nil {
+		return nil, fmt.Errorf("failed to apply chat template: %s", C.GoString(C.llama_wrapper_last_error()))
+	}
+
+	return &chatSession{ptr: ptr}, nil
+}
+
+// prompt returns the rendered prompt.
+func (s *chatSession) prompt() string {
+	return C.GoString(C.llama_wrapper_chat_session_prompt(s.ptr))
+}
+
+// feed appends generated text and returns the content and reasoning parsed so
+// far. Set final on the last call so incomplete markup is resolved.
+func (s *chatSession) feed(text string, final bool) (content, reasoningContent string, err error) {
 	cText := C.CString(text)
 	defer C.free(unsafe.Pointer(cText))
 
-	cFormat := C.llama_wrapper_reasoning_format(format)
-	cChatFormat := C.int(chatFormat)
-
-	// Parse with is_partial=true for streaming
-	result := C.llama_wrapper_parse_reasoning(cText, C.bool(true), cFormat, cChatFormat)
+	result := C.llama_wrapper_chat_session_feed(s.ptr, cText, C.bool(final))
 	if result == nil {
-		return "", "", fmt.Errorf("failed to parse reasoning: %s", C.GoString(C.llama_wrapper_last_error()))
+		return "", "", fmt.Errorf("failed to parse chat output: %s", C.GoString(C.llama_wrapper_last_error()))
 	}
 	defer C.llama_wrapper_free_parsed_message(result)
 
@@ -67,24 +109,32 @@ func parseReasoning(text string, format ReasoningFormat, chatFormat int) (conten
 	if result.reasoning_content != nil {
 		reasoningContent = C.GoString(result.reasoning_content)
 	}
-
 	return content, reasoningContent, nil
 }
 
-// chatWithContext implements non-streaming chat completion using a specific context.
-//
-// This is an internal helper called by Context.Chat().
-func (m *Model) chatWithContext(ctx gocontext.Context, c *Context, messages []ChatMessage, opts ChatOptions) (*ChatResponse, error) {
-	// Build prompt from messages using chat template
-	prompt, err := formatChatMessages(m, messages, opts)
-	if err != nil {
-		return nil, err
+// cPtr returns the session for the C generate params, or nil without one.
+func (s *chatSession) cPtr() unsafe.Pointer {
+	if s == nil {
+		return nil
 	}
+	return s.ptr
+}
 
-	// Build generation options from chat options
+func (s *chatSession) close() {
+	C.llama_wrapper_chat_session_free(s.ptr)
+	s.ptr = nil
+}
+
+// chatGenerateOptions builds generation options from chat options.
+func chatGenerateOptions(session *chatSession, opts ChatOptions) []GenerateOption {
 	// Use user-provided stop words (no defaults - template handles this)
+	budget := -1
+	if opts.ReasoningBudget != nil {
+		budget = *opts.ReasoningBudget
+	}
 	genOpts := []GenerateOption{
 		WithStopWords(opts.StopWords...),
+		withChatSession(session, budget),
 	}
 
 	if opts.MaxTokens != nil {
@@ -102,11 +152,22 @@ func (m *Model) chatWithContext(ctx gocontext.Context, c *Context, messages []Ch
 	if opts.Seed != nil {
 		genOpts = append(genOpts, WithSeed(*opts.Seed))
 	}
+	return genOpts
+}
 
-	// Generate using context's GenerateChannel
-	tokenCh, errCh := c.GenerateChannel(ctx, prompt, genOpts...)
+// chatWithContext implements non-streaming chat completion using a specific context.
+//
+// This is an internal helper called by Context.Chat().
+func (m *Model) chatWithContext(ctx gocontext.Context, c *Context, messages []ChatMessage, opts ChatOptions) (*ChatResponse, error) {
+	session, err := newChatSession(m, messages, opts, opts.ReasoningFormat)
+	if err != nil {
+		return nil, err
+	}
+	defer session.close()
 
-	var content strings.Builder
+	tokenCh, errCh := c.GenerateChannel(ctx, session.prompt(), chatGenerateOptions(session, opts)...)
+
+	var output strings.Builder
 
 Loop:
 	for {
@@ -115,7 +176,7 @@ Loop:
 			if !ok {
 				break Loop
 			}
-			content.WriteString(token)
+			output.WriteString(token)
 		case err := <-errCh:
 			if err != nil {
 				return nil, err
@@ -125,17 +186,15 @@ Loop:
 		}
 	}
 
-	// Parse final output to extract reasoning
-	fullOutput := content.String()
-	chatFormat := m.getChatFormat()
-	parsedContent, reasoning, err := parseReasoning(fullOutput, opts.ReasoningFormat, chatFormat)
+	fullOutput := output.String()
+	content, reasoning, err := session.feed(fullOutput, true)
 	if err != nil {
 		// If parsing fails, return content as-is without reasoning extraction
 		return &ChatResponse{Content: fullOutput}, nil
 	}
 
 	return &ChatResponse{
-		Content:          parsedContent,
+		Content:          content,
 		ReasoningContent: reasoning,
 	}, nil
 }
@@ -156,47 +215,68 @@ func (m *Model) chatStreamWithContext(ctx gocontext.Context, c *Context, message
 		defer close(deltaCh)
 		defer close(errCh)
 
-		// Build prompt from messages using chat template
-		prompt, err := formatChatMessages(m, messages, opts)
-		if err != nil {
+		sendErr := func(err error) {
 			select {
 			case errCh <- err:
 			default:
 			}
+		}
+
+		// DeepSeekLegacy leaves reasoning inline when streaming
+		inline := opts.ReasoningFormat == ReasoningFormatDeepSeekLegacy
+
+		session, err := newChatSession(m, messages, opts, opts.ReasoningFormat)
+		if err != nil {
+			sendErr(err)
 			return
 		}
+		defer session.close()
 
-		// Build generation options from chat options
-		// Use user-provided stop words (no defaults - template handles this)
-		genOpts := []GenerateOption{
-			WithStopWords(opts.StopWords...),
-		}
+		tokenCh, genErrCh := c.GenerateChannel(ctx, session.prompt(), chatGenerateOptions(session, opts)...)
 
-		if opts.MaxTokens != nil {
-			genOpts = append(genOpts, WithMaxTokens(*opts.MaxTokens))
-		}
-		if opts.Temperature != nil {
-			genOpts = append(genOpts, WithTemperature(*opts.Temperature))
-		}
-		if opts.TopP != nil {
-			genOpts = append(genOpts, WithTopP(*opts.TopP))
-		}
-		if opts.TopK != nil {
-			genOpts = append(genOpts, WithTopK(*opts.TopK))
-		}
-		if opts.Seed != nil {
-			genOpts = append(genOpts, WithSeed(*opts.Seed))
-		}
-
-		// Use context's GenerateChannel
-		tokenCh, genErrCh := c.GenerateChannel(ctx, prompt, genOpts...)
-
-		// Get chat format once before loop
-		chatFormat := m.getChatFormat()
-
-		// Track accumulated output and previous parsed state for delta computation
-		var accumulated strings.Builder
+		// Previous parsed state for delta computation
 		var prevContent, prevReasoning string
+		parseFailed := false
+
+		send := func(delta ChatDelta) bool {
+			select {
+			case deltaCh <- delta:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+
+		// emit parses the output so far and sends whatever is new since the
+		// last parse. If parsing fails, it sends text as-is from then on.
+		emit := func(text string, final bool) bool {
+			if inline || parseFailed {
+				if text == "" {
+					return true
+				}
+				return send(ChatDelta{Content: text})
+			}
+
+			content, reasoning, err := session.feed(text, final)
+			if err != nil {
+				parseFailed = true
+				return text == "" || send(ChatDelta{Content: text})
+			}
+
+			var delta ChatDelta
+			if strings.HasPrefix(content, prevContent) {
+				delta.Content = content[len(prevContent):]
+				prevContent = content
+			}
+			if strings.HasPrefix(reasoning, prevReasoning) {
+				delta.ReasoningContent = reasoning[len(prevReasoning):]
+				prevReasoning = reasoning
+			}
+			if delta.Content == "" && delta.ReasoningContent == "" {
+				return true
+			}
+			return send(delta)
+		}
 
 	Loop:
 		for {
@@ -205,54 +285,21 @@ func (m *Model) chatStreamWithContext(ctx gocontext.Context, c *Context, message
 				if !ok {
 					break Loop
 				}
-
-				// Accumulate token
-				accumulated.WriteString(token)
-
-				// Parse accumulated output to extract reasoning
-				content, reasoning, err := parseReasoning(accumulated.String(), opts.ReasoningFormat, chatFormat)
-				if err != nil {
-					// If parsing fails, send token as-is without reasoning extraction
-					select {
-					case deltaCh <- ChatDelta{Content: token}:
-					case <-ctx.Done():
-						return
-					}
-					continue
+				if !emit(token, false) {
+					return
 				}
-
-				// Compute deltas (what's new since last parse)
-				contentDelta := content[len(prevContent):]
-				reasoningDelta := reasoning[len(prevReasoning):]
-
-				// Send delta if there's new content or reasoning
-				if contentDelta != "" || reasoningDelta != "" {
-					select {
-					case deltaCh <- ChatDelta{
-						Content:          contentDelta,
-						ReasoningContent: reasoningDelta,
-					}:
-					case <-ctx.Done():
-						return
-					}
-				}
-
-				// Update previous state
-				prevContent = content
-				prevReasoning = reasoning
-
 			case err := <-genErrCh:
 				if err != nil {
-					select {
-					case errCh <- err:
-					default:
-					}
+					sendErr(err)
 					return
 				}
 			case <-ctx.Done():
 				return
 			}
 		}
+
+		// Resolve anything held back as possibly incomplete markup
+		emit("", true)
 	}()
 
 	return deltaCh, errCh

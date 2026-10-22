@@ -104,6 +104,11 @@ typedef struct {
     int n_prev;
     int n_probs;
     bool ignore_eos;
+
+    // Chat session (from llama_wrapper_chat_session_new), or NULL for raw generation.
+    // Supplies the generation prompt and thinking tags to the sampler.
+    void* chat_session;
+    int reasoning_budget; // Thinking token limit (-1 = unlimited, 0 = no thinking); needs chat_session
 } llama_wrapper_generate_params;
 
 // Callback for streaming tokens
@@ -164,7 +169,6 @@ int llama_wrapper_model_n_embd(void* model);
 
 // Chat template support
 const char* llama_wrapper_get_chat_template(void* model);
-char* llama_wrapper_apply_chat_template(const char* tmpl, const char** roles, const char** contents, int n_messages, bool add_assistant);
 
 // Reasoning content parsing
 typedef enum {
@@ -179,25 +183,28 @@ typedef struct {
     const char* reasoning_content;  // NULL if empty
 } llama_wrapper_parsed_message;
 
-// Parse model output to extract reasoning/thinking content
-// For streaming: call with is_partial=true, reasoning_format=DEEPSEEK or AUTO
-// Returns NULL on error. Free result with llama_wrapper_free_parsed_message()
-llama_wrapper_parsed_message* llama_wrapper_parse_reasoning(
-    const char* text,
-    bool is_partial,
-    llama_wrapper_reasoning_format format,
-    int chat_format
-);
-
 void llama_wrapper_free_parsed_message(llama_wrapper_parsed_message* msg);
 
-// Chat format auto-detection from model metadata
+// Chat templates from model metadata, or from template_override when non-NULL
 void* llama_wrapper_chat_templates_init(void* model, const char* template_override);
 void llama_wrapper_chat_templates_free(void* templates);
-int llama_wrapper_chat_templates_get_format(void* templates);
 
-// Chat format constants (values match common_chat_format enum in llama.cpp/common/chat.h)
-#define LLAMA_CHAT_FORMAT_CONTENT_ONLY 0
+// Chat session: renders the prompt with the Jinja chat template and parses the
+// model's output with the parser built from the same render.
+// enable_thinking: -1 = template default, 0 = off, 1 = on.
+// Returns NULL on error. Free with llama_wrapper_chat_session_free().
+void* llama_wrapper_chat_session_new(void* templates, const char** roles, const char** contents,
+                                     int n_messages, llama_wrapper_reasoning_format format,
+                                     int enable_thinking);
+void llama_wrapper_chat_session_free(void* session);
+
+// Rendered prompt, owned by the session
+const char* llama_wrapper_chat_session_prompt(void* session);
+
+// Append generated text and return the message parsed so far (final = true
+// for the last call). Returns NULL on error. Free with llama_wrapper_free_parsed_message().
+llama_wrapper_parsed_message* llama_wrapper_chat_session_feed(void* session, const char* text, bool final);
+
 
 // Model metadata access
 const char* llama_wrapper_model_meta_string(void* model, const char* key);

@@ -35,6 +35,29 @@ static void llama_log_callback(ggml_log_level level, const char * text, void * /
     }
 }
 
+// Pass a chat session's generation prompt and thinking tags to the sampler, so
+// it starts in the right reasoning state and can enforce the thinking budget.
+static void apply_chat_session_sampling(common_params_sampling & sampling, const llama_model * model,
+                                        void * chat_session, int reasoning_budget) {
+    if (!chat_session) return;
+    auto session = static_cast<const common_chat_session*>(chat_session);
+
+    sampling.generation_prompt = session->generation_prompt();
+
+    if (reasoning_budget < 0 || session->thinking_start_tag().empty() || session->thinking_end_tags().empty()) {
+        return;
+    }
+
+    const llama_vocab * vocab = llama_model_get_vocab(model);
+    sampling.reasoning_budget_tokens = reasoning_budget;
+    sampling.reasoning_budget_start = common_tokenize(vocab, session->thinking_start_tag(), false, true);
+    sampling.reasoning_budget_end.clear();
+    for (const auto & tag : session->thinking_end_tags()) {
+        sampling.reasoning_budget_end.push_back(common_tokenize(vocab, tag, false, true));
+    }
+    sampling.reasoning_budget_forced = sampling.reasoning_budget_end.front();
+}
+
 // Batch helpers for llama_batch. b11521 removed common_batch_clear/common_batch_add
 // in favour of the llama_batch_ext-based common_batch; these keep the old behaviour.
 static void batch_clear(struct llama_batch & batch) {
@@ -431,6 +454,8 @@ char* llama_wrapper_generate_with_tokens(void* ctx, const int* tokens, int n_tok
         sampling_params.n_probs = params.n_probs;
         sampling_params.ignore_eos = params.ignore_eos;
 
+        apply_chat_session_sampling(sampling_params, wrapper->model, params.chat_session, params.reasoning_budget);
+
         // Initialise sampler
         common_sampler* sampler = common_sampler_init(wrapper->model, sampling_params);
         if (!sampler) {
@@ -782,6 +807,8 @@ char* llama_wrapper_generate_draft_with_tokens(void* ctx_target, void* ctx_draft
         sampling_params.n_prev = params.n_prev;
         sampling_params.n_probs = params.n_probs;
         sampling_params.ignore_eos = params.ignore_eos;
+
+        apply_chat_session_sampling(sampling_params, wrapper_tgt->model, params.chat_session, params.reasoning_budget);
 
         // Initialise sampler
         common_sampler* sampler = common_sampler_init(wrapper_tgt->model, sampling_params);
@@ -1390,112 +1417,6 @@ const char* llama_wrapper_get_chat_template(void* model) {
     return tmpl;  // May be nullptr if model has no template
 }
 
-// Apply chat template to messages
-// Returns allocated string with formatted prompt (caller must free with llama_wrapper_free_result)
-// Returns nullptr on error
-char* llama_wrapper_apply_chat_template(const char* tmpl, const char** roles, const char** contents, int n_messages, bool add_assistant) {
-    if (!tmpl || !roles || !contents || n_messages < 0) {
-        g_last_error = "Invalid parameters for chat template application";
-        return nullptr;
-    }
-
-    try {
-        // Build array of llama_chat_message structs
-        std::vector<llama_chat_message> messages;
-        messages.reserve(n_messages);
-
-        for (int i = 0; i < n_messages; i++) {
-            if (!roles[i] || !contents[i]) {
-                g_last_error = "Role or content cannot be null";
-                return nullptr;
-            }
-            messages.push_back({roles[i], contents[i]});
-        }
-
-        // Start with a reasonable buffer size (8KB)
-        std::vector<char> buffer(8192);
-
-        // Try to apply template
-        int32_t result_len = llama_chat_apply_template(
-            tmpl,
-            messages.data(),
-            n_messages,
-            add_assistant,
-            buffer.data(),
-            buffer.size()
-        );
-
-        // If buffer was too small, resize and retry
-        if (result_len > (int32_t)buffer.size()) {
-            buffer.resize(result_len);
-            result_len = llama_chat_apply_template(
-                tmpl,
-                messages.data(),
-                n_messages,
-                add_assistant,
-                buffer.data(),
-                buffer.size()
-            );
-        }
-
-        // Check for errors
-        if (result_len < 0) {
-            g_last_error = "Failed to apply chat template (template detection or application error)";
-            return nullptr;
-        }
-
-        // Allocate result and copy
-        char* c_result = (char*)malloc(result_len + 1);
-        if (c_result) {
-            memcpy(c_result, buffer.data(), result_len);
-            c_result[result_len] = '\0';
-        } else {
-            g_last_error = "Failed to allocate memory for chat template result";
-            return nullptr;
-        }
-
-        return c_result;
-    } catch (const std::exception& e) {
-        g_last_error = "Exception during chat template application: " + std::string(e.what());
-        return nullptr;
-    }
-}
-
-// Parse model output to extract reasoning/thinking content
-// Returns NULL on error. Free result with llama_wrapper_free_parsed_message()
-llama_wrapper_parsed_message* llama_wrapper_parse_reasoning(
-    const char* text,
-    bool is_partial,
-    llama_wrapper_reasoning_format format,
-    int chat_format
-) {
-    if (!text) {
-        g_last_error = "Text cannot be null for reasoning parsing";
-        return nullptr;
-    }
-
-    try {
-        // Configure syntax for parsing
-        common_chat_parser_params syntax;
-        syntax.format = static_cast<common_chat_format>(chat_format);
-
-        // Parse the text
-        common_chat_msg msg = common_chat_parse(common_chat_input(std::string(text)), is_partial, syntax);
-
-        // Allocate result struct
-        auto* result = new llama_wrapper_parsed_message;
-        result->content = strdup(msg.content.c_str());
-        result->reasoning_content = msg.reasoning_content.empty()
-            ? nullptr
-            : strdup(msg.reasoning_content.c_str());
-
-        return result;
-    } catch (const std::exception& e) {
-        g_last_error = "Exception during reasoning parsing: " + std::string(e.what());
-        return nullptr;
-    }
-}
-
 void llama_wrapper_free_parsed_message(llama_wrapper_parsed_message* msg) {
     if (!msg) return;
 
@@ -1514,8 +1435,13 @@ void* llama_wrapper_chat_templates_init(void* model, const char* template_overri
     auto model_wrapper = static_cast<llama_wrapper_model_t*>(model);
     std::string tmpl_override = template_override ? template_override : "";
 
-    auto templates = common_chat_templates_init(model_wrapper->model, tmpl_override);
-    return templates.release();  // Transfer ownership
+    try {
+        auto templates = common_chat_templates_init(model_wrapper->model, tmpl_override);
+        return templates.release();  // Transfer ownership
+    } catch (const std::exception& e) {
+        g_last_error = "Failed to load chat template: " + std::string(e.what());
+        return nullptr;
+    }
 }
 
 void llama_wrapper_chat_templates_free(void* templates) {
@@ -1523,29 +1449,82 @@ void llama_wrapper_chat_templates_free(void* templates) {
     common_chat_templates_free(static_cast<common_chat_templates*>(templates));
 }
 
-int llama_wrapper_chat_templates_get_format(void* templates) {
-    if (!templates) return 0;  // COMMON_CHAT_FORMAT_CONTENT_ONLY = 0
+// Chat session plus a stable copy of its rendered prompt for the C API
+struct llama_wrapper_chat_session_t {
+    common_chat_session session;
+    std::string prompt;
+};
 
-    auto tmpl = static_cast<common_chat_templates*>(templates);
+void* llama_wrapper_chat_session_new(void* templates, const char** roles, const char** contents,
+                                     int n_messages, llama_wrapper_reasoning_format format,
+                                     int enable_thinking) {
+    if (!templates || !roles || !contents || n_messages <= 0) {
+        g_last_error = "Invalid parameters for chat session";
+        return nullptr;
+    }
 
     try {
-        // Apply with minimal dummy messages just to trigger format detection
         common_chat_templates_inputs inputs;
         inputs.use_jinja = true;
         inputs.add_generation_prompt = true;
+        inputs.reasoning_format = static_cast<common_reasoning_format>(format);
+        if (enable_thinking >= 0) {
+            inputs.enable_thinking = enable_thinking != 0;
+        }
+        for (int i = 0; i < n_messages; i++) {
+            if (!roles[i] || !contents[i]) {
+                g_last_error = "Role or content cannot be null";
+                return nullptr;
+            }
+            common_chat_msg msg;
+            msg.role = roles[i];
+            msg.content = contents[i];
+            inputs.messages.push_back(std::move(msg));
+        }
 
-        // Create a minimal dummy message to satisfy template application
-        common_chat_msg dummy_msg;
-        dummy_msg.role = "user";
-        dummy_msg.content = "test";  // Non-empty to avoid potential issues
-        inputs.messages.push_back(dummy_msg);
-
-        auto params = common_chat_templates_apply(tmpl, inputs);
-        return static_cast<int>(params.format);
+        // No vocab: generated text is fed back as text, and the sampler side
+        // tokenises the generation prompt and thinking tags itself
+        auto* wrapper = new llama_wrapper_chat_session_t{
+            common_chat_session(static_cast<common_chat_templates*>(templates), nullptr, inputs),
+            "",
+        };
+        wrapper->prompt = wrapper->session.prompt().str();
+        return wrapper;
     } catch (const std::exception& e) {
-        // If template application fails, return CONTENT_ONLY as fallback
-        g_last_error = "Format detection failed: " + std::string(e.what());
-        return 0;  // COMMON_CHAT_FORMAT_CONTENT_ONLY
+        g_last_error = "Failed to apply chat template: " + std::string(e.what());
+        return nullptr;
+    }
+}
+
+void llama_wrapper_chat_session_free(void* session) {
+    delete static_cast<llama_wrapper_chat_session_t*>(session);
+}
+
+const char* llama_wrapper_chat_session_prompt(void* session) {
+    if (!session) return nullptr;
+    return static_cast<llama_wrapper_chat_session_t*>(session)->prompt.c_str();
+}
+
+llama_wrapper_parsed_message* llama_wrapper_chat_session_feed(void* session, const char* text, bool final) {
+    if (!session || !text) {
+        g_last_error = "Invalid parameters for chat session feed";
+        return nullptr;
+    }
+
+    try {
+        auto& chat = static_cast<llama_wrapper_chat_session_t*>(session)->session;
+        common_chat_input chunk{std::string(text)};
+        const common_chat_msg& msg = final ? chat.finish(chunk) : chat.feed(chunk);
+
+        auto* result = new llama_wrapper_parsed_message;
+        result->content = strdup(msg.content.c_str());
+        result->reasoning_content = msg.reasoning_content.empty()
+            ? nullptr
+            : strdup(msg.reasoning_content.c_str());
+        return result;
+    } catch (const std::exception& e) {
+        g_last_error = "Failed to parse chat output: " + std::string(e.what());
+        return nullptr;
     }
 }
 

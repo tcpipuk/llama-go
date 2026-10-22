@@ -654,6 +654,8 @@ func (c *Context) generateWithConfig(prompt string, config generateConfig, callb
 		callback_handle:             callbackHandle,
 		ignore_eos:                  C.bool(config.ignoreEOS),
 		debug:                       C.bool(config.debug),
+		chat_session:                config.chatSession.cPtr(),
+		reasoning_budget:            C.int(config.reasoningBudget),
 	}
 
 	// Call C generation function
@@ -766,6 +768,8 @@ func (c *Context) generateWithTokensAndConfig(tokens []int32, config generateCon
 		callback_handle:             callbackHandle,
 		ignore_eos:                  C.bool(config.ignoreEOS),
 		debug:                       C.bool(config.debug),
+		chat_session:                config.chatSession.cPtr(),
+		reasoning_budget:            C.int(config.reasoningBudget),
 	}
 
 	// Call C generation function with tokens
@@ -909,6 +913,8 @@ func (c *Context) generateWithDraftAndConfig(prompt string, draft *Context, conf
 		callback_handle:             callbackHandle,
 		ignore_eos:                  C.bool(config.ignoreEOS),
 		debug:                       C.bool(config.debug),
+		chat_session:                config.chatSession.cPtr(),
+		reasoning_budget:            C.int(config.reasoningBudget),
 	}
 
 	// Call C draft generation function
