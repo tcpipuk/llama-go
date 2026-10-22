@@ -524,6 +524,7 @@ char* llama_wrapper_generate_with_tokens(void* ctx, const int* tokens, int n_tok
 
             // Sample the next token (using logits from previous decode or prompt)
             llama_token new_token_id = common_sampler_sample(sampler, wrapper->ctx, -1);
+            common_sampler_accept(sampler, new_token_id, true);
 
             if (params.debug && n_gen == 0) {
                 fprintf(stderr, "DEBUG: Sampled token: %d\n", new_token_id);

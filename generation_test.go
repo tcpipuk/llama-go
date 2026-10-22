@@ -212,6 +212,23 @@ var _ = Describe("Model.Generate", func() {
 			// Random seed should produce different outputs (high probability with creative prompt)
 			Expect(response1).NotTo(Equal(response2))
 		})
+
+		It("should apply WithRepeatPenalty to generated tokens", Label("integration"), func() {
+			// Greedy decoding of this prompt loops on "Hello world", so a penalty
+			// only changes the output if it sees the tokens generated so far
+			generate := func(penalty float32) string {
+				response, err := ctx.Generate("Hello world",
+					llama.WithMaxTokens(50),
+					llama.WithTemperature(0),
+					llama.WithRepeatPenalty(penalty),
+					llama.WithPenaltyLastN(64),
+				)
+				Expect(err).NotTo(HaveOccurred())
+				return response
+			}
+
+			Expect(generate(1.5)).NotTo(Equal(generate(1.0)))
+		})
 	})
 
 	Context("with max_tokens validation", func() {
