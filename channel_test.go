@@ -158,8 +158,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 					if tokenCount == cancelAfter {
 						cancel()
 					}
-				case <-errCh:
-					// Ignore errors, we're testing cancellation
+				case err := <-errCh:
+					Expect(err).NotTo(HaveOccurred())
 				case <-time.After(5 * time.Second):
 					// Timeout to prevent test hanging
 					break Loop
@@ -189,8 +189,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 						break Loop
 					}
 					tokenCount++
-				case <-errCh:
-					// Ignore errors
+				case err := <-errCh:
+					Expect(err).NotTo(HaveOccurred())
 				case <-timeout:
 					break Loop
 				}
@@ -249,12 +249,12 @@ var _ = Describe("Model.GenerateChannel", func() {
 
 	Context("context timeout", func() {
 		It("should respect context timeout", Label("integration", "channel", "slow"), func() {
-			// Use a longer timeout that allows some tokens but stops before max
-			ctxTimeout, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			// A timeout that allows some tokens but stops well before max
+			ctxTimeout, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 
 			tokenCh, errCh := ctx.GenerateChannel(ctxTimeout, "Write a detailed story about dragons",
-				llama.WithMaxTokens(10000)) // Request many tokens
+				llama.WithMaxTokens(2000)) // Fits the 2048 context
 
 			var tokens []string
 
@@ -266,17 +266,16 @@ var _ = Describe("Model.GenerateChannel", func() {
 						break Loop
 					}
 					tokens = append(tokens, token)
-				case <-errCh:
-					// Ignore errors
+				case err := <-errCh:
+					Expect(err).NotTo(HaveOccurred())
 				case <-ctxTimeout.Done():
 					break Loop
 				}
 			}
 
-			// With GPU acceleration, generation might complete before timeout
-			// Just verify that generation works with context
-			// (either completes or times out - both are valid)
 			GinkgoWriter.Printf("Generated %d tokens\n", len(tokens))
+			Expect(tokens).NotTo(BeEmpty())
+			Expect(len(tokens)).To(BeNumerically("<", 2000))
 		})
 
 		It("should handle very short timeout", Label("integration", "channel"), func() {
@@ -297,8 +296,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 						break Loop
 					}
 					tokenCount++
-				case <-errCh:
-					// Ignore errors
+				case err := <-errCh:
+					Expect(err).NotTo(HaveOccurred())
 				case <-timeout:
 					break Loop
 				}
@@ -659,6 +658,7 @@ var _ = Describe("Model.GenerateChannel", func() {
 
 			for i := 0; i < numStreams; i++ {
 				go func() {
+					defer GinkgoRecover()
 					bgCtx := context.Background()
 					tokenCh, errCh := ctx.GenerateChannel(bgCtx, "Test",
 						llama.WithMaxTokens(5))
@@ -672,7 +672,8 @@ var _ = Describe("Model.GenerateChannel", func() {
 								break Loop
 							}
 							tokenCount++
-						case <-errCh:
+						case err := <-errCh:
+							Expect(err).NotTo(HaveOccurred())
 						}
 					}
 
@@ -846,7 +847,8 @@ var _ = Describe("Model.GenerateWithDraftChannel", func() {
 					if tokenCount == cancelAfter {
 						cancel()
 					}
-				case <-errCh:
+				case err := <-errCh:
+					Expect(err).NotTo(HaveOccurred())
 				case <-time.After(5 * time.Second):
 					break Loop
 				}
@@ -1081,7 +1083,8 @@ var _ = Describe("Channel Streaming Edge Cases", func() {
 						break Loop
 					}
 					result.WriteString(token)
-				case <-errCh:
+				case err := <-errCh:
+					Expect(err).NotTo(HaveOccurred())
 				}
 			}
 
